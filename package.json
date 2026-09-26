@@ -3,6 +3,7 @@
   "private": true,
   "packageManager": "pnpm@11.17.0",
   "scripts": {
+    "studio": "node apps/studio/server.mjs",
     "crawler:setup": "cd apps/media-crawler && uv sync",
     "crawler:api": "cd apps/media-crawler && uv run uvicorn api.main:app --host 127.0.0.1 --port 8080",
     "crawler:cli": "cd apps/media-crawler && uv run main.py",

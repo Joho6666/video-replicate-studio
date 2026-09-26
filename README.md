@@ -5,6 +5,7 @@
 | 目录 | 内容 | 语言 |
 | :--- | :--- | :--- |
 | `apps/media-crawler` | [NanmiCoder/MediaCrawler](https://github.com/NanmiCoder/MediaCrawler) 源码快照（上游 `380b426`，2026-09-19） | Python（uv）+ docs（vitepress） |
+| `apps/studio` | **复刻 Studio**：粘贴链接 → 抓取 → 切镜 → AI 导演拆解 → LibTV 分段提示词与素材包（零依赖 Node） | Node + 原生 HTML/CSS/JS |
 | `apps/media-crawler/webui` | MediaCrawler 自带 WebUI（`mediacrawler-webui`） | React + Vite |
 
 > ⚠️ **许可证**：MediaCrawler 使用 *NON-COMMERCIAL LEARNING LICENSE 1.1* —— 仅限学习研究，
@@ -41,3 +42,14 @@ WebUI：`pnpm crawler:api`（:8080）+ `pnpm dev:webui`（:5173）。
 ```
 抓取（本仓库）→ 转录口播/字幕 → 提示词工作台（Video 1 / Image N 映射）→ LibTV / Wan 3.0 生成 → Hypit 拼接包装
 ```
+
+## 复刻 Studio（演示界面）
+
+```bash
+cp apps/studio/.env.example apps/studio/.env.local   # 填 DeepSeek / TikHub Key，或用 AVD_ENV_FILE 指向已有配置
+pnpm studio                                          # http://127.0.0.1:3300
+```
+
+- 抖音 / B站：MediaCrawler（首次弹出 Chrome 扫码，登录态保存在 `apps/media-crawler/browser_data/`）；抖音失败且配了 TikHub 时自动改用 TikHub。
+- TikTok / Instagram：TikHub（需 `TIKHUB_API_KEY`）。
+- 任务数据在 `apps/studio/data/jobs/<id>/`，导出的素材包在其中的 `export/`。
