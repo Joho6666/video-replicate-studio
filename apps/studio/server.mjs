@@ -4,7 +4,7 @@ import { mkdir, rm, stat, unlink } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { config, STUDIO_DIR, tools } from './lib/env.mjs';
+import { config, env, STUDIO_DIR, tools } from './lib/env.mjs';
 import { buildExport, libtvMarkdown, REF_STYLES } from './lib/export.mjs';
 import { createJob, jobDir, listJobs, loadJob, log, saveJob } from './lib/jobs.mjs';
 import { isRunning, runPipeline } from './lib/pipeline.mjs';
@@ -196,8 +196,20 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(config.port, '127.0.0.1', () => {
-  console.log(`\n  复刻工作台  →  http://127.0.0.1:${config.port}\n`);
-  health().then(h => { for (const e of Object.values(h.engines)) console.log(`  ${e.ok ? '●' : '○'} ${e.label.padEnd(13)} ${e.note}`); console.log(''); });
-});
+// Node's fetch ignores HTTP(S)_PROXY unless NODE_USE_ENV_PROXY is set at startup;
+// TikHub / TikTok / Instagram are only reachable through the local proxy here.
+const proxy = env.STUDIO_PROXY || process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
+if (proxy && !process.env.NODE_USE_ENV_PROXY) {
+  const child = spawn(process.execPath, process.argv.slice(1), { stdio: 'inherit', env: { ...process.env, NODE_USE_ENV_PROXY: '1', STUDIO_PARENT: String(process.pid), HTTPS_PROXY: proxy, HTTP_PROXY: proxy, NO_PROXY: process.env.NO_PROXY || 'localhost,127.0.0.1,::1' } });
+  child.on('exit', code => process.exit(code ?? 0));
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => child.kill(sig));
+} else {
+  // Respawned child: exit when the launcher dies (Windows does not kill children).
+  const parent = Number(process.env.STUDIO_PARENT);
+  if (parent) setInterval(() => { try { process.kill(parent, 0); } catch { process.exit(0); } }, 2000).unref();
+  server.listen(config.port, '127.0.0.1', () => {
+    console.log(`\n  复刻工作台  →  http://127.0.0.1:${config.port}${proxy ? `（外网经代理 ${proxy.replace(/\/\/[^@]*@/, '//')}）` : ''}\n`);
+    health().then(h => { for (const e of Object.values(h.engines)) console.log(`  ${e.ok ? '●' : '○'} ${e.label.padEnd(13)} ${e.note}`); console.log(''); });
+  });
+}
 
