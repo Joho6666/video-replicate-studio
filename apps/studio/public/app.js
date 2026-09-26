@@ -6,7 +6,7 @@ const app = $('#app');
 
 const state = {
   health: null, jobs: [], job: null, tab: 'overview', poll: null, sig: {}, exportPath: null,
-  filter: 'all', refStyle: localStorage.getItem('studio-ref') || 'en',
+  filter: 'all', refStyle: localStorage.getItem('studio-ref') || 'en', copyTone: 'seed', copyTarget: 'douyin', copyBusy: false,
 };
 
 /* ───────── utils ───────── */
@@ -344,7 +344,7 @@ function onTime() {
 }
 
 /* tabs */
-const TABS = [['overview', '爆款拆解'], ['shots', '分镜'], ['libtv', 'LibTV 提示词'], ['assets', '素材与导出']];
+const TABS = [['overview', '爆款拆解'], ['shots', '分镜'], ['libtv', 'LibTV 提示词'], ['copy', '带货文案'], ['assets', '素材与导出']];
 
 function renderTabs(job) {
   const counts = { shots: job.shots.length || '', libtv: job.director?.segments.length ? `${job.director.segments.length}段` : '' };
@@ -360,7 +360,7 @@ function waiting(job, what) {
 }
 
 function renderTabBody(job) {
-  const sig = `${state.tab}|${job.director?.generatedAt || ''}|${job.shots.length}|${job.running}|${job.assets.map(a => a.file).join()}|${state.exportPath || ''}|${state.refStyle}`;
+  const sig = `${state.tab}|${job.director?.generatedAt || ''}|${job.shots.length}|${job.running}|${job.assets.map(a => a.file).join()}|${state.exportPath || ''}|${state.refStyle}|${state.copyTone}|${state.copyTarget}|${state.copyBusy}|${job.copy?.generatedAt || ''}|${job.brief?.notes ? 1 : 0}`;
   if (state.sig.tab === sig) return;
   state.sig.tab = sig;
   const body = $('#tabBody');
@@ -429,6 +429,59 @@ function renderTabBody(job) {
     body.querySelectorAll('[data-ref]').forEach(b => { b.onclick = () => { state.refStyle = b.dataset.ref; localStorage.setItem('studio-ref', state.refStyle); renderTabBody(job); }; });
     $('#copyAll').onclick = () => copy(all());
     $('#goExport').onclick = () => switchTab(job, 'assets');
+  }
+
+  if (state.tab === 'copy') {
+    if (!d) return void (body.innerHTML = waiting(job, '拆解完成后才能写文案'));
+    const c = job.copy;
+    const TONE = { seed: '种草', review: '测评', promo: '促销', story: '剧情' };
+    const TARGET = { douyin: '抖音', xhs: '小红书', channels: '视频号', tiktok: 'TikTok' };
+    const ctl = (key, map) => `<div class="seg-ctl" data-ctl="${key}">${Object.entries(map).map(([k, v]) => `<button data-v="${k}" class="${state[key] === k ? 'on' : ''}">${v}</button>`).join('')}</div>`;
+    const copyBtn = t => `<button class="btn sm copy" data-copy="${esc(t)}">${icon(I.copy)}复制</button>`;
+    const vLimit = s => Math.floor(s * 4.5);
+    body.innerHTML = `
+      <div class="toolbar">
+        <span class="lbl">风格</span>${ctl('copyTone', TONE)}
+        <span class="lbl">平台</span>${ctl('copyTarget', TARGET)}
+        <span style="flex:1"></span>
+        <button class="btn primary magnetic" id="genCopy" ${state.copyBusy ? 'disabled' : ''}>${icon(I.spark)}${state.copyBusy ? '正在写…' : c ? '重新生成' : '生成文案'}</button>
+        ${c ? `<a class="btn" href="/api/jobs/${job.id}/copy.md">${icon(I.down)}下载 .md</a>` : ''}
+      </div>
+      ${!job.brief?.notes ? `<div class="warnbox">还没有填写商品卖点：文案只会写体验和场景，不会出现具体功效。到「素材与导出」补充后效果更好。</div>` : ''}
+      ${state.copyBusy ? `<div class="waiting"><div class="spinner"></div><strong>DeepSeek 正在写文案</strong>按每段时长控制口播字数，通常 10–30 秒</div>` : !c ? `<div class="waiting"><strong>选好风格和平台，生成一套文案</strong>标题、开头钩子、分段口播、逐镜字幕、发布文案与置顶评论</div>` : `
+      ${c.warnings?.length ? `<div class="warnbox">⚠ ${c.warnings.map(esc).join('；')}</div>` : ''}
+      <div class="grid2">
+        <div class="panel rise"><h4>标题候选 · ${esc(TARGET[c.target])}</h4>${c.titles.map((t, i) => `<div class="copy-row"><span class="idx">${String(i + 1).padStart(2, '0')}</span><p>${esc(t)}</p>${copyBtn(t)}</div>`).join('')}</div>
+        <div class="panel rise" style="--i:1"><h4>开头 3 秒钩子</h4>${c.hooks.map((t, i) => `<div class="copy-row"><span class="idx">${String(i + 1).padStart(2, '0')}</span><p>${esc(t)}</p>${copyBtn(t)}</div>`).join('')}</div>
+      </div>
+      <div class="panel rise" style="margin-top:14px"><h4>口播脚本 · 按段计时</h4>
+        ${c.voiceover.map(v => { const n = v.text.replace(/\s/g, '').length, lim = vLimit(v.duration); return `<div class="vo">
+          <div class="vo-head"><b>段 ${v.segment}</b><span class="tcode">${tc(v.start)} – ${tc(v.end)}</span><span class="meter"><i style="width:${Math.min(n / lim, 1) * 100}%" class="${n > lim ? 'over' : ''}"></i></span><span class="cnt ${n > lim ? 'over' : ''}">${n}/${lim} 字</span>${copyBtn(v.text)}</div>
+          <p>${esc(v.text)}</p></div>`; }).join('')}
+      </div>
+      <div class="panel rise" style="margin-top:14px"><h4>画面字幕 · 逐镜头 <button class="btn sm" id="copyCaps" style="margin-left:8px">${icon(I.copy)}复制全部 SRT</button></h4>
+        <div class="caps">${c.captions.map(x => { const s = job.shots.find(y => y.index === x.shot); return `<div class="cap" data-t="${x.start}"><img src="${file(job.id, s?.keyframe)}" alt=""><div><span class="tcode">${tc(x.start)}</span><p>${esc(x.text)}</p></div></div>`; }).join('')}</div>
+      </div>
+      <div class="grid2" style="margin-top:14px">
+        <div class="panel rise"><h4>发布文案</h4><p class="pub">${esc(c.description)}</p><p class="tags">${c.hashtags.map(h => `<span>#${esc(h)}</span>`).join('')}</p>
+          <div class="actions" style="margin-top:12px">${copyBtn(`${c.description}\n\n${c.hashtags.map(h => `#${h}`).join(' ')}`)}</div></div>
+        <div class="panel rise" style="--i:1"><h4>置顶评论</h4><p class="pub">${esc(c.pinned_comment)}</p><div class="actions" style="margin-top:12px">${copyBtn(c.pinned_comment)}</div>
+          ${c.notes?.length ? `<h4 style="margin-top:18px">给剪辑 / 运营</h4>${c.notes.map(n => `<p class="note-line">${esc(n)}</p>`).join('')}` : ''}</div>
+      </div>
+      <p class="foot-note">${esc(c.model)} · ${new Date(c.generatedAt).toLocaleString('zh-CN', { hour12: false })}${c.usage ? ` · ${c.usage.prompt_tokens}+${c.usage.completion_tokens} tokens` : ''}${c.repaired ? ' · 已自动修正一次' : ''}</p>`}`;
+    body.querySelectorAll('[data-ctl]').forEach(g => g.querySelectorAll('button').forEach(b => { b.onclick = () => { state[g.dataset.ctl] = b.dataset.v; state.sig.tab = null; renderTabBody(job); }; }));
+    body.querySelectorAll('.cap').forEach(el => { el.onclick = () => seek(Number(el.dataset.t)); });
+    $('#genCopy').onclick = async () => {
+      state.copyBusy = true; state.sig.tab = null; renderTabBody(job);
+      try { job.copy = await api(`/api/jobs/${job.id}/copy`, { method: 'POST', json: { tone: state.copyTone, target: state.copyTarget } }); toast('文案已生成'); }
+      catch (err) { toast(err.message, true); }
+      state.copyBusy = false; state.sig.tab = null; renderTabBody(job);
+    };
+    if (c) $('#copyCaps').onclick = () => {
+      const srt = t => { const h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = Math.floor(t % 60), ms = Math.round((t % 1) * 1000); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`; };
+      copy(c.captions.map((x, i) => `${i + 1}\n${srt(x.start)} --> ${srt(x.end)}\n${x.text}\n`).join('\n'));
+    };
+    refresh(body);
   }
 
   if (state.tab === 'assets') {

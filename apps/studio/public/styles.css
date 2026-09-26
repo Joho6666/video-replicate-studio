@@ -492,3 +492,29 @@ html { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
   .reveal { opacity: 1; transform: none; filter: none; }
 }
 .kpi b span { font: inherit; color: inherit; letter-spacing: inherit; }
+
+/* copywriting tab */
+.copy-row { display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.copy-row:first-of-type { border-top: 0; }
+.copy-row p { margin: 0; color: var(--text); font-size: 14.5px; line-height: 1.5; }
+.copy-row .copy { position: static; }
+.vo { padding: 14px 0; border-top: 1px solid var(--line); }
+.vo:first-of-type { border-top: 0; }
+.vo-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.vo-head b { font: 600 13px var(--latin); }
+.vo-head .copy { position: static; margin-left: auto; }
+.vo p { margin: 0; font-size: 15.5px; line-height: 1.8; color: var(--text); }
+.meter { width: 120px; height: 4px; border-radius: 4px; background: var(--surface-3); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--ok); border-radius: 4px; transition: width .8s var(--ease); }
+.meter i.over { background: var(--bad); }
+.cnt { font: 500 11.5px var(--mono); color: var(--muted); }
+.cnt.over { color: var(--bad); }
+.caps { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 6px; }
+.cap { display: flex; gap: 10px; align-items: center; padding: 8px; border-radius: 14px; background: var(--surface-2); cursor: pointer; transition: background .2s; }
+.cap:hover { background: var(--surface-3); }
+.cap img { width: 44px; height: 58px; object-fit: cover; border-radius: 8px; flex: none; background: #000; }
+.cap p { margin: 2px 0 0; font-weight: 600; font-size: 13.5px; color: var(--text); }
+.pub { color: var(--text) !important; font-size: 14.5px; line-height: 1.75; white-space: pre-wrap; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px !important; }
+.tags span { font-size: 12.5px; color: var(--accent); background: var(--accent-soft); padding: 2px 9px; border-radius: 999px; }
+.note-line { font-size: 13px; padding-left: 12px; border-left: 2px solid var(--accent-line); margin: 6px 0 0 !important; }

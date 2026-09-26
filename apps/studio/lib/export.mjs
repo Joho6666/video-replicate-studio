@@ -2,6 +2,7 @@ import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { jobDir } from './jobs.mjs';
 import { cutClip } from './media.mjs';
+import { copyMarkdown } from './copywriter.mjs';
 
 const tc = s => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 
@@ -81,6 +82,7 @@ export async function buildExport(job, style = 'en') {
   }
   await writeFile(path.join(out, 'LibTV提示词.md'), libtvMarkdown(job, style));
   await writeFile(path.join(out, '分镜拆解.md'), shotTableMarkdown(job, style));
+  if (job.copy) await writeFile(path.join(out, '带货文案.md'), copyMarkdown(job));
   await writeFile(path.join(out, 'director.json'), JSON.stringify({ source: job.source, meta: job.meta, media: job.media, shots: job.shots, director: job.director }, null, 2));
   return out;
 }

@@ -91,7 +91,15 @@ function reveal(root) {
       io.unobserve(en.target);
     }
   }, { threshold: 0.18, rootMargin: '0px 0px -6% 0px' });
-  root.querySelectorAll('.reveal, [data-count]').forEach(el => io.observe(el));
+  const els = [...root.querySelectorAll('.reveal, [data-count]')];
+  els.forEach(el => io.observe(el));
+  // Safety net: if the observer never fires (background tab, odd layout), show everything in view anyway.
+  const t = setTimeout(() => els.forEach(el => {
+    if (el.classList.contains('in')) return;
+    const r = el.getBoundingClientRect();
+    if (r.top < innerHeight && r.bottom > 0) { el.classList.add('in'); if (el.dataset.count !== undefined) countUp(el); }
+  }), 1200);
+  cleanups.push(() => clearTimeout(t));
   cleanups.push(() => io.disconnect());
 }
 

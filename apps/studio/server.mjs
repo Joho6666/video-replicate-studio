@@ -5,6 +5,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { config, env, STUDIO_DIR, tools } from './lib/env.mjs';
+import { copyMarkdown, runCopywriter, TARGETS, TONES } from './lib/copywriter.mjs';
 import { buildExport, libtvMarkdown, REF_STYLES } from './lib/export.mjs';
 import { createJob, jobDir, listJobs, loadJob, log, saveJob } from './lib/jobs.mjs';
 import { isRunning, runPipeline } from './lib/pipeline.mjs';
@@ -168,6 +169,28 @@ async function route(req, res) {
         const target = existsSync(path.join(root, 'export')) ? path.join(root, 'export') : root;
         spawn(process.platform === 'win32' ? 'explorer.exe' : 'open', [target], { detached: true, stdio: 'ignore' }).unref();
         return send(res, 200, { path: target });
+      }
+      if (action === 'copy' && req.method === 'POST') {
+        const { tone = 'seed', target = 'douyin' } = await readJson(req);
+        if (!TONES[tone] || !TARGETS[target]) return send(res, 400, { error: '未知的文案风格或平台' });
+        if (job.copyRunning) return send(res, 409, { error: '文案正在生成' });
+        job.copyRunning = true;
+        try {
+          log(job, `DeepSeek 写${TARGETS[target]}${TONES[tone]}文案`);
+          job.copy = await runCopywriter(job, { tone, target });
+          log(job, `文案完成（${job.copy.titles.length} 条标题 · ${job.copy.voiceover.length} 段口播 · ${job.copy.captions.length} 条字幕）`);
+        } catch (error) {
+          log(job, `文案失败：${error.message}`, 'error');
+          throw error;
+        } finally {
+          job.copyRunning = false;
+          await saveJob(job);
+        }
+        return send(res, 200, job.copy);
+      }
+      if (action === 'copy.md' && req.method === 'GET') {
+        if (!job.copy) return send(res, 404, { error: '还没有文案' });
+        return send(res, 200, copyMarkdown(job), { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`带货文案-${job.id}.md`)}` });
       }
       if (action === 'libtv.md' && req.method === 'GET') {
         if (!job.director) return send(res, 404, { error: '提示词还没生成' });

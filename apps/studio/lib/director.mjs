@@ -163,14 +163,17 @@ export async function runDirector({ job, root, onLog }) {
   let reply = await chat(messages);
   let usage = reply.usage;
   let parsed, check;
-  try { parsed = JSON.parse(reply.text); check = checkDirector(parsed, shots, segments); } catch { check = { hard: ['response is not valid JSON'], soft: [] }; }
+  // The model reliably forgets the @Video1 role line; adding it is deterministic, so don't pay for a re-ask.
+  const ensureVideoRef = p => { for (const s of p?.segments || []) if (typeof s?.prompt_en === 'string' && !s.prompt_en.includes('@Video1')) s.prompt_en = `Follow @Video1 only for camera path, shot order, composition and pacing.
+${s.prompt_en}`; return p; };
+  try { parsed = ensureVideoRef(JSON.parse(reply.text)); check = checkDirector(parsed, shots, segments); } catch { check = { hard: ['response is not valid JSON'], soft: [] }; }
   let repaired = false;
   if (check.hard.length) {
     onLog(`提示词未过格式检查（${check.hard.slice(0, 2).join('；')}），带着问题清单重出一次`, 'warn');
     messages.push({ role: 'assistant', content: reply.text }, { role: 'user', content: `The JSON above fails these checks:\n- ${check.hard.slice(0, 20).join('\n- ')}\nReturn the complete corrected JSON. Fix only these issues and keep everything else.` });
     reply = await chat(messages);
     usage = addUsage(usage, reply.usage);
-    try { parsed = JSON.parse(reply.text); check = checkDirector(parsed, shots, segments); } catch { check = { hard: ['response is not valid JSON'], soft: [] }; }
+    try { parsed = ensureVideoRef(JSON.parse(reply.text)); check = checkDirector(parsed, shots, segments); } catch { check = { hard: ['response is not valid JSON'], soft: [] }; }
     if (check.hard.length) throw new Error(`DeepSeek 两次输出都未通过检查：${check.hard.slice(0, 3).join('；')}`);
     repaired = true;
   }
