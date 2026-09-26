@@ -5,31 +5,46 @@ import { cutClip } from './media.mjs';
 
 const tc = s => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 
-export function libtvMarkdown(job) {
+/** LibTV's Chinese UI names uploads @图片1; the English form suits Seedance/Dreamina; Wan uses "Image 1". */
+export const REF_STYLES = {
+  en: { label: '@Image1', map: { '@Video1': '@Video1', '@Image1': '@Image1', '@Image2': '@Image2' } },
+  zh: { label: '@图片1', map: { '@Video1': '@视频1', '@Image1': '@图片1', '@Image2': '@图片2' } },
+  plain: { label: 'Image 1', map: { '@Video1': 'Video 1', '@Image1': 'Image 1', '@Image2': 'Image 2' } },
+};
+export const applyRefs = (text, style = 'en') => String(text || '').replace(/@(Video1|Image1|Image2)/g, m => (REF_STYLES[style] || REF_STYLES.en).map[m]);
+
+const segPrompt = s => s.prompt_en ?? s.prompt ?? '';
+
+export function libtvMarkdown(job, style = 'en') {
   const d = job.director;
+  const R = k => REF_STYLES[style]?.map[k] || k;
   const lines = [
     `# LibTV 复刻提示词 · ${job.meta.title?.split('\n')[0]?.slice(0, 40) || job.id}`,
     '',
     `来源：${job.meta.platformLabel || ''} ${job.source.url || ''}`,
     `分析窗口：前 ${job.media.analyzedSec?.toFixed(1)}s · ${job.shots.length} 个镜头 · ${d.segments.length} 段生成（每段 ≤15s）`,
+    `导演规则：${d.version || 'studio-director'}`,
     '',
     '## 素材上传对照',
     '',
     '| 编号 | 上传文件 |',
     '| :--- | :--- |',
-    '| @视频1 | `参考片段/` 里对应段的 mp4（每段单独上传） |',
-    '| @图片1 | 替换模特图 |',
-    '| @图片2 | 替换商品图 |',
+    `| ${R('@Video1')} | \`参考片段/\` 里对应段的 mp4（每段单独上传，只作运镜与节奏参考） |`,
+    `| ${R('@Image1')} | 替换模特图 |`,
+    `| ${R('@Image2')} | 替换商品图 |`,
     '',
   ];
   for (const s of d.segments) {
-    lines.push(`## 第 ${s.index} 段 · ${tc(s.start)}–${tc(s.end)}（${s.duration}s）`, '', `上传 @视频1：\`参考片段/段${s.index}_${s.duration}s.mp4\``, '', '```', s.prompt, '```', '');
+    lines.push(`## 第 ${s.index} 段 · ${tc(s.start)}–${tc(s.end)}（${s.duration}s）`, '');
+    if (s.note_zh) lines.push(`> ${s.note_zh}`, '');
+    lines.push(`上传 ${R('@Video1')}：\`参考片段/段${s.index}_${s.duration}s.mp4\``, '', '**Prompt**', '', '```', applyRefs(segPrompt(s), style), '```', '');
+    if (s.negative_en) lines.push('**Negative**', '', '```', applyRefs(s.negative_en, style), '```', '');
   }
   if (d.negative) lines.push('## 负面约束', '', '```', d.negative, '```', '');
   return lines.join('\n');
 }
 
-export function shotTableMarkdown(job) {
+export function shotTableMarkdown(job, style = 'en') {
   const d = job.director;
   const a = d.analysis;
   const lines = [
@@ -38,17 +53,17 @@ export function shotTableMarkdown(job) {
     `- **声音**：${a.audio_guess || '不确定'}`,
     ...(a.why_it_works || []).map(x => `- **爆点**：${x}`),
     '', '# 分镜表', '',
-    '| # | 时间 | 景别 | 运镜 | 画面 | 文字 | 提示词 |', '| :-: | :-- | :-- | :-- | :-- | :-- | :-- |',
+    '| # | 时间 | 景别 | 运镜 | 画面 | 替换 | Prompt |', '| :-: | :-- | :-- | :-- | :-- | :-- | :-- |',
   ];
   job.shots.forEach((shot, i) => {
     const s = d.shots[i] || {};
     const cell = v => String(v ?? '').replace(/\|/g, '/').replace(/\n/g, ' ');
-    lines.push(`| ${shot.index} | ${tc(shot.start)}–${tc(shot.end)} | ${cell(s.shot_size)} | ${cell(s.camera)} | ${cell(`${s.subject || ''}，${s.action || ''}`)} | ${cell(s.on_screen_text)} | ${cell(s.prompt)} |`);
+    lines.push(`| ${shot.index} | ${tc(shot.start)}–${tc(shot.end)} | ${cell(s.shot_size)} | ${cell(s.camera)} | ${cell(`${s.subject || ''}，${s.action || ''}`)} | ${cell(s.replace_note)} | ${cell(applyRefs(s.prompt_en ?? s.prompt, style))} |`);
   });
   return lines.join('\n');
 }
 
-export async function buildExport(job) {
+export async function buildExport(job, style = 'en') {
   if (!job.director) throw new Error('提示词还没生成');
   const root = jobDir(job.id);
   const out = path.join(root, 'export');
@@ -60,11 +75,12 @@ export async function buildExport(job) {
   if (job.assets?.length) {
     await mkdir(path.join(out, '替换素材'), { recursive: true });
     for (const asset of job.assets) {
-      await copyFile(path.join(root, asset.file), path.join(out, '替换素材', `${asset.role === 'model' ? '图片1_模特' : '图片2_商品'}${path.extname(asset.file)}`));
+      const ref = asset.role === 'model' ? REF_STYLES[style].map['@Image1'] : REF_STYLES[style].map['@Image2'];
+      await copyFile(path.join(root, asset.file), path.join(out, '替换素材', `${ref.replace(/[@\s]/g, '')}_${asset.role === 'model' ? '模特' : '商品'}${path.extname(asset.file)}`));
     }
   }
-  await writeFile(path.join(out, 'LibTV提示词.md'), libtvMarkdown(job));
-  await writeFile(path.join(out, '分镜拆解.md'), shotTableMarkdown(job));
+  await writeFile(path.join(out, 'LibTV提示词.md'), libtvMarkdown(job, style));
+  await writeFile(path.join(out, '分镜拆解.md'), shotTableMarkdown(job, style));
   await writeFile(path.join(out, 'director.json'), JSON.stringify({ source: job.source, meta: job.meta, media: job.media, shots: job.shots, director: job.director }, null, 2));
   return out;
 }

@@ -5,7 +5,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { config, STUDIO_DIR, tools } from './lib/env.mjs';
-import { buildExport, libtvMarkdown } from './lib/export.mjs';
+import { buildExport, libtvMarkdown, REF_STYLES } from './lib/export.mjs';
 import { createJob, jobDir, listJobs, loadJob, log, saveJob } from './lib/jobs.mjs';
 import { isRunning, runPipeline } from './lib/pipeline.mjs';
 import { detectPlatform, extractUrl, PLATFORMS } from './lib/sources.mjs';
@@ -51,7 +51,7 @@ const within = (base, rel) => {
 function summary(job) {
   return {
     id: job.id, createdAt: job.createdAt, status: job.status, platform: job.source.platform, platformLabel: PLATFORMS[job.source.platform]?.label,
-    title: job.meta.title, author: job.meta.author, cover: job.media.cover || job.shots[0]?.keyframe, duration: job.media.duration,
+    title: job.meta.title, author: job.meta.author, likes: job.meta.metrics?.likes, cover: job.media.cover || job.shots[0]?.keyframe, duration: job.media.duration,
     shots: job.shots.length, hasPrompts: Boolean(job.director), running: isRunning(job.id),
   };
 }
@@ -158,7 +158,8 @@ async function route(req, res) {
         return send(res, 202, { ok: true });
       }
       if (action === 'export' && req.method === 'POST') {
-        const out = await buildExport(job);
+        const { style = 'en' } = await readJson(req);
+        const out = await buildExport(job, REF_STYLES[style] ? style : 'en');
         job.exportedAt = new Date().toISOString();
         await saveJob(job);
         return send(res, 200, { path: out });
@@ -170,7 +171,8 @@ async function route(req, res) {
       }
       if (action === 'libtv.md' && req.method === 'GET') {
         if (!job.director) return send(res, 404, { error: '提示词还没生成' });
-        return send(res, 200, libtvMarkdown(job), { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`LibTV提示词-${job.id}.md`)}` });
+        const style = REF_STYLES[url.searchParams.get('style')] ? url.searchParams.get('style') : 'en';
+        return send(res, 200, libtvMarkdown(job, style), { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`LibTV提示词-${job.id}.md`)}` });
       }
     }
     return send(res, 404, { error: 'not found' });
