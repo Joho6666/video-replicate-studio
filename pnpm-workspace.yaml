@@ -2,5 +2,6 @@ packages:
   - "apps/*"
   - "apps/*/webui"
 
-onlyBuiltDependencies:
-  - esbuild
+# pnpm 11: builds are opt-in per package (replaces onlyBuiltDependencies)
+allowBuilds:
+  esbuild: true
