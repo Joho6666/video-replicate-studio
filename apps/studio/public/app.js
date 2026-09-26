@@ -1,4 +1,5 @@
 // 复刻 Studio — zero-dependency client
+import { darkScene, lightScene } from './scenes.js';
 const $ = (sel, root = document) => root.querySelector(sel);
 const app = $('#app');
 
@@ -77,15 +78,14 @@ function detect(text) {
 function renderEngines() {
   const h = state.health;
   if (!h) return;
-  const ok = Object.values(h.engines).filter(e => e.ok).length;
-  $('#engines').innerHTML = `<h6>${icon(I.spark)}引擎 ${ok}/${Object.keys(h.engines).length} 在线</h6>` +
-    Object.values(h.engines).map(e => `<div class="engine ${e.ok ? 'ok' : ''}" title="${esc(e.note)}"><b>${esc(e.label)}</b><span>${e.ok ? '就绪' : '未配置'}</span></div>`).join('');
+  const list = Object.values(h.engines);
+  const el = $('#engines');
+  el.innerHTML = list.map(e => `<i class="${e.ok ? 'ok' : ''}"></i>`).join('');
+  el.title = list.map(e => `${e.ok ? '●' : '○'} ${e.label}：${e.note}`).join('\n');
+  const k = $('#kpiEngines');
+  if (k) k.textContent = `${list.filter(e => e.ok).length}/${list.length}`;
 }
-function renderRecent() {
-  const current = state.job?.id;
-  $('#recent').innerHTML = state.jobs.slice(0, 8).map(j => `<a href="#/job/${j.id}" class="${j.id === current ? 'on' : ''}">
-    ${j.cover ? `<img src="${file(j.id, j.cover)}" alt="">` : '<i class="ph"></i>'}<span>${esc((j.title || '未命名').split('\n')[0])}</span>${j.running ? '<i class="live"></i>' : ''}</a>`).join('') || '<span style="padding:0 12px;font-size:12px;color:var(--muted)">还没有拆解</span>';
-}
+function renderRecent() {}
 function crumbs(parts) {
   $('#crumbs').innerHTML = parts.map((p, i) => i < parts.length - 1 ? `<a href="${p[1]}">${esc(p[0])}</a><em style="color:var(--faint)">/</em>` : `<span>${esc(p[0])}</span>`).join('');
 }
@@ -97,42 +97,64 @@ $('#theme').onclick = () => {
 };
 
 /* ───────── home ───────── */
-function renderHome({ focus = false } = {}) {
-  crumbs([['片库', '#/']]);
-  setNav('home');
+function renderHome({ focus = false, toLibrary = false } = {}) {
+  $('#crumbs').innerHTML = '';
+  setNav(toLibrary ? 'library' : 'home');
+  app.classList.add('full');
   app.innerHTML = `
   <section class="hero">
-    <span class="eyebrow rise"><b></b>抖音 · B站 · TikTok · Instagram → LibTV</span>
-    <h1 class="rise" style="--i:1">拆解一条爆款，<br><em>复刻每一帧</em></h1>
-    <p class="rise" style="--i:2">粘贴链接，自动抓取原片、切分镜头，AI 导演逐帧拆出钩子与节奏，编译成可直接贴进 LibTV 的英文分段提示词与素材包。</p>
-    <form class="search rise" style="--i:3" id="slate">
-      <input id="link" autocomplete="off" placeholder="粘贴分享链接或整段分享文案…">
-      <span class="detected" id="detected">自动识别平台</span>
-      <button class="go" id="go" type="submit" aria-label="开始拆解">${icon(I.arrow)}</button>
-    </form>
-    <div class="search-sub rise" style="--i:4">
-      <button class="linkish" id="toggleBrief" type="button">＋ 替换商品与模特</button>
-      <button class="linkish" id="upload" type="button">上传本地视频</button>
-      <span>长视频只拆前 ${state.health?.analyzeMaxSec ?? 60} 秒 · 每段 ≤15 秒</span>
+    <div class="scene">${lightScene()}${darkScene()}</div>
+    <div class="hero-inner">
+      <span class="badge rise"><b>NEW</b>英文 Seedance 分段提示词已上线</span>
+      <h1 class="rise" style="--i:1">复刻爆款，<br>从一条<em>链接</em>开始。</h1>
+      <p class="sub rise" style="--i:2">抓取原片、切分镜头、AI 导演逐帧拆解，<br>一键编译成可以直接贴进 LibTV 的提示词。</p>
+      <form class="search rise" style="--i:3" id="slate">
+        <input id="link" autocomplete="off" placeholder="粘贴抖音 / B站 / TikTok / Instagram 链接…">
+        <span class="detected" id="detected"></span>
+        <button class="btn ink" id="go" type="submit">开始拆解 ${icon(I.arrow)}</button>
+      </form>
+      <div class="brief" id="brief">
+        <div class="field"><label>替换商品</label><input name="product" placeholder="例：米色轻暖连帽羽绒服"></div>
+        <div class="field"><label>模特要求</label><input name="model" placeholder="例：25 岁亚洲女生，短发"></div>
+        <div class="field wide"><label>商品卖点（AI 只会使用这里写的卖点）</label><textarea name="notes" rows="2" placeholder="例：90% 白鸭绒、可机洗、三色可选"></textarea></div>
+      </div>
+      <div class="hero-actions rise" style="--i:4">
+        <button class="btn text" id="toggleBrief" type="button">＋ 替换商品与模特</button>
+        <button class="btn text" id="upload" type="button">${icon(I.upload)}上传本地视频</button>
+        <a class="btn text" href="#/guide">使用流程 →</a>
+      </div>
+      <input type="file" id="uploadInput" accept="video/*" hidden>
     </div>
-    <div class="brief" id="brief">
-      <div class="field"><label>替换商品</label><input name="product" placeholder="例：米色轻暖连帽羽绒服"></div>
-      <div class="field"><label>模特要求</label><input name="model" placeholder="例：25 岁亚洲女生，短发"></div>
-      <div class="field wide"><label>商品卖点（AI 只会使用这里写的卖点）</label><textarea name="notes" rows="2" placeholder="例：90% 白鸭绒、可机洗、三色可选"></textarea></div>
-    </div>
-    <input type="file" id="uploadInput" accept="video/*" hidden>
+    <button class="scroll" id="scrollBtn" type="button">SCROLL ${icon(I.down)}</button>
   </section>
-  <div class="cats rise" style="--i:5" id="cats"></div>
-  <section class="masonry" id="library"></section>`;
+
+  <section class="section" id="about">
+    <div class="statement">
+      <div><span class="tag">关于复刻 Studio</span></div>
+      <h2>我们把<em>爆款视频</em>拆成一个个镜头，再编译成<em>可复刻</em>的英文提示词，让每一条都能<em>稳定出片</em>。</h2>
+    </div>
+    <div class="stats-row">
+      <div class="kpi rise" style="--i:1"><span>片库</span><b id="kpiJobs">0</b><small>条已拆解视频</small></div>
+      <div class="kpi rise" style="--i:2"><span>镜头</span><b id="kpiShots">0</b><small>个带关键帧的分镜</small></div>
+      <div class="kpi rise" style="--i:3"><span>每段时长</span><b>≤15s</b><small>匹配 Seedance 单次生成</small></div>
+      <div class="kpi rise" style="--i:4"><span>引擎在线</span><b id="kpiEngines">–</b><small>MediaCrawler · TikHub · DeepSeek · FFmpeg</small></div>
+    </div>
+  </section>
+
+  <section class="section" id="lib">
+    <div class="lib-head"><div><span class="tag">片库</span><h2>最近拆解</h2></div><div class="cats" id="cats"></div></div>
+    <div class="masonry" id="library"></div>
+  </section>`;
 
   const link = $('#link');
   const sync = () => {
     const p = detect(link.value);
     $('#detected').className = `detected${p ? ' on' : ''}`;
-    $('#detected').innerHTML = p ? `<i style="width:8px;height:8px;border-radius:50%;background:${PLATFORMS[p][1]}"></i>${PLATFORMS[p][0]}` : (link.value.trim() ? '未识别' : '自动识别平台');
+    $('#detected').innerHTML = p ? `<i style="width:8px;height:8px;border-radius:50%;background:${PLATFORMS[p][1]}"></i>${PLATFORMS[p][0]}` : (link.value.trim() ? '未识别' : '');
   };
   link.addEventListener('input', sync);
-  if (focus) setTimeout(() => link.focus(), 300);
+  if (focus) setTimeout(() => link.focus(), 400);
+  $('#scrollBtn').onclick = () => $('#about').scrollIntoView({ behavior: 'smooth' });
   $('#toggleBrief').onclick = () => $('#brief').classList.toggle('open');
   $('#upload').onclick = () => $('#uploadInput').click();
   $('#uploadInput').onchange = e => e.target.files[0] && uploadVideo(e.target.files[0]);
@@ -144,12 +166,15 @@ function renderHome({ focus = false } = {}) {
     try { const job = await api('/api/jobs', { method: 'POST', json: { text: link.value, brief } }); location.hash = `#/job/${job.id}`; }
     catch (err) { toast(err.message, true); $('#go').disabled = false; }
   };
+  renderEngines();
   renderLibrary();
+  if (toLibrary) setTimeout(() => $('#lib').scrollIntoView({ behavior: 'smooth' }), 200);
 }
 
 function renderLibrary() {
   const cats = $('#cats'), el = $('#library');
   if (!el) return;
+  if ($('#kpiJobs')) { $('#kpiJobs').textContent = state.jobs.length; $('#kpiShots').textContent = state.jobs.reduce((n, j) => n + (j.shots || 0), 0); }
   const counts = state.jobs.reduce((m, j) => ({ ...m, [j.platform]: (m[j.platform] || 0) + 1 }), {});
   cats.innerHTML = [['all', '全部', state.jobs.length], ...Object.entries(PLATFORMS).map(([id, [label]]) => [id, label, counts[id] || 0])]
     .filter(([id, , n]) => id === 'all' || n)
@@ -161,7 +186,7 @@ function renderLibrary() {
   el.innerHTML = jobs.map((j, i) => {
     const [pl, color] = PLATFORMS[j.platform] || ['', '#999'];
     const st = j.running ? ['running', '拆解中'] : j.status === 'done' ? ['done', '已完成'] : ['failed', '未完成'];
-    return `<a class="card rise" style="--i:${Math.min(i, 10) + 5}" href="#/job/${j.id}">
+    return `<a class="card rise" style="--i:${Math.min(i, 10)}" href="#/job/${j.id}">
       <div class="thumb">
         ${j.cover ? `<img src="${file(j.id, j.cover)}" alt="" loading="lazy">` : '<div class="ph skeleton" style="border-radius:0"></div>'}
         ${j.duration ? `<span class="pill">${icon(I.play)}${tc(j.duration).replace(/\.\d$/, '')}</span>` : ''}
@@ -177,16 +202,16 @@ function renderLibrary() {
 }
 
 function renderGuide() {
-  crumbs([['片库', '#/'], ['使用流程', '']]);
+  crumbs([['首页', '#/'], ['使用流程', '']]);
   setNav('guide');
-  app.innerHTML = `<section class="hero" style="padding-bottom:0"><span class="eyebrow rise"><b></b>从链接到成片</span><h1 class="rise" style="--i:1">四步走完<br><em>一条复刻</em></h1></section>
+  app.innerHTML = `<section class="guide-hero"><span class="tag rise">从链接到成片</span><h1 class="rise" style="--i:1">四步走完<em>一条复刻</em></h1></section>
     <div class="guide">${[
       ['01', '粘贴链接', '抖音 / B站 由 MediaCrawler 抓取（首次扫码登录），TikTok / Instagram 走 TikHub。也可以直接上传本地视频。'],
       ['02', '自动切镜', 'FFmpeg 识别硬切，长镜头按 5 秒节拍细分，每个镜头取一张关键帧，按 15 秒切成生成段。'],
-      ['03', 'AI 导演', '依据 AI Director Skill：中文讲清爆点，英文编译 Seedance 分段提示词，全程绑定 @Image1 模特 与 @Image2 商品。'],
+      ['03', 'AI 导演', '依据 AI Director Skill：中文讲清爆点，英文编译 Seedance 分段提示词，全程绑定 @Image1 模特与 @Image2 商品。'],
       ['04', 'LibTV 出片', '导出素材包：每段参考片段（@Video1）、替换素材、提示词与分镜表。逐段上传生成，再拼接成片。'],
     ].map(([n, t, d], i) => `<div class="gstep rise" style="--i:${i + 2}"><b>${n}</b><h4>${t}</h4><p>${d}</p></div>`).join('')}</div>
-    <div class="actions" style="justify-content:center;margin-top:34px"><a class="btn primary" href="#/new">开始第一条 ${icon(I.arrow)}</a></div>`;
+    <div class="actions" style="justify-content:center;margin-top:34px"><a class="btn ink" href="#/new">开始第一条 ${icon(I.arrow)}</a></div>`;
 }
 
 function uploadVideo(f) {
@@ -205,6 +230,7 @@ function uploadVideo(f) {
 /* ───────── job ───────── */
 function renderJobShell() {
   setNav('');
+  app.classList.remove('full');
   app.innerHTML = `
     <div id="jobHead" class="job-head"><div class="skeleton" style="height:84px;width:60%"></div></div>
     <div id="rail" class="rail"></div>
@@ -222,7 +248,7 @@ function renderJobHead(job) {
   const m = job.meta || {};
   const [pl, color] = PLATFORMS[job.source.platform] || ['', '#999'];
   const metrics = [['播放', m.metrics?.views], ['点赞', m.metrics?.likes], ['评论', m.metrics?.comments], ['分享', m.metrics?.shares]].filter(x => x[1] != null);
-  crumbs([['片库', '#/'], [(m.title || '拆解中…').split('\n')[0].slice(0, 48), '']]);
+  crumbs([['片库', '#/library'], [(m.title || '拆解中…').split('\n')[0].slice(0, 48), '']]);
   $('#jobHead').innerHTML = `
     <div style="min-width:0">
       <div class="job-sub"><span class="chip" style="background:${color}1f;color:${color};font-weight:600">${esc(pl)}</span>${m.author ? `<span class="chip">@${esc(m.author)}</span>` : ''}${m.engine ? `<span class="chip">${esc(m.engine)}</span>` : ''}${job.source.url ? `<a class="linkish" href="${esc(job.source.url)}" target="_blank" rel="noreferrer">原链接 ↗</a>` : ''}<button class="linkish" id="del" style="color:var(--muted)">删除</button></div>
@@ -478,7 +504,7 @@ async function refreshJob(id) {
 /* ───────── router ───────── */
 async function route() {
   clearTimeout(state.poll);
-  window.scrollTo({ top: 0 });
+  if (!location.hash.startsWith('#/library')) window.scrollTo({ top: 0 });
   const m = location.hash.match(/^#\/job\/([\w-]+)/);
   if (m) {
     state.job = null; state.tab = 'overview';
@@ -488,8 +514,9 @@ async function route() {
     return;
   }
   state.job = null;
+  app.classList.remove('full');
   if (location.hash.startsWith('#/guide')) renderGuide();
-  else renderHome({ focus: location.hash.startsWith('#/new') });
+  else renderHome({ focus: location.hash.startsWith('#/new'), toLibrary: location.hash.startsWith('#/library') });
   loadJobs();
 }
 
