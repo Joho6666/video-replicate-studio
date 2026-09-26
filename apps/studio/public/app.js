@@ -1,5 +1,6 @@
 // 复刻 Studio — zero-dependency client
 import { darkScene, lightScene } from './scenes.js';
+import { countUp, mount, moveIndicator, refresh, splitChars, transition } from './fx.js';
 const $ = (sel, root = document) => root.querySelector(sel);
 const app = $('#app');
 
@@ -89,7 +90,7 @@ function renderRecent() {}
 function crumbs(parts) {
   $('#crumbs').innerHTML = parts.map((p, i) => i < parts.length - 1 ? `<a href="${p[1]}">${esc(p[0])}</a><em style="color:var(--faint)">/</em>` : `<span>${esc(p[0])}</span>`).join('');
 }
-function setNav(id) { document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.nav === id)); }
+function setNav(id) { document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.nav === id)); requestAnimationFrame(moveIndicator); }
 $('#theme').onclick = () => {
   const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
   document.documentElement.dataset.theme = next;
@@ -97,6 +98,9 @@ $('#theme').onclick = () => {
 };
 
 /* ───────── home ───────── */
+const marquee = () => ['抖音', 'Bilibili', 'TikTok', 'Instagram', '镜头切分', 'Seedance 2.0', 'LibTV', '英文提示词', '参考片段', '替换模特', '替换商品']
+  .map((w, i) => `<span class="${i % 3 === 1 ? 'dim' : ''}">${w}</span>`).join('');
+
 function renderHome({ focus = false, toLibrary = false } = {}) {
   $('#crumbs').innerHTML = '';
   setNav(toLibrary ? 'library' : 'home');
@@ -105,20 +109,20 @@ function renderHome({ focus = false, toLibrary = false } = {}) {
   <section class="hero">
     <div class="scene">${lightScene()}${darkScene()}</div>
     <div class="hero-inner">
-      <span class="badge rise"><b>NEW</b>英文 Seedance 分段提示词已上线</span>
-      <h1 class="rise" style="--i:1">复刻爆款，<br>从一条<em>链接</em>开始。</h1>
-      <p class="sub rise" style="--i:2">抓取原片、切分镜头、AI 导演逐帧拆解，<br>一键编译成可以直接贴进 LibTV 的提示词。</p>
-      <form class="search rise" style="--i:3" id="slate">
+      <span class="meta-line rise"><i></i><span>v0.3</span><span>抖音 · B站 · TikTok · Instagram</span><span>约 60 秒出结果</span></span>
+      <h1><span class="ln"><span style="--l:0">复刻爆款，</span></span><span class="ln"><span style="--l:1">从一条<em>链接</em>开始。</span></span></h1>
+      <p class="sub rise" style="--i:4">贴一条链接，大约一分钟后拿到分镜、钩子拆解，<br>和能直接贴进 LibTV 的英文提示词。</p>
+      <form class="search rise" style="--i:5" id="slate">
         <input id="link" autocomplete="off" placeholder="粘贴抖音 / B站 / TikTok / Instagram 链接…">
         <span class="detected" id="detected"></span>
-        <button class="btn ink" id="go" type="submit">开始拆解 ${icon(I.arrow)}</button>
+        <button class="btn ink magnetic" data-strength=".18" id="go" type="submit">开始拆解 ${icon(I.arrow)}</button>
       </form>
       <div class="brief" id="brief">
         <div class="field"><label>替换商品</label><input name="product" placeholder="例：米色轻暖连帽羽绒服"></div>
         <div class="field"><label>模特要求</label><input name="model" placeholder="例：25 岁亚洲女生，短发"></div>
         <div class="field wide"><label>商品卖点（AI 只会使用这里写的卖点）</label><textarea name="notes" rows="2" placeholder="例：90% 白鸭绒、可机洗、三色可选"></textarea></div>
       </div>
-      <div class="hero-actions rise" style="--i:4">
+      <div class="hero-actions rise" style="--i:6">
         <button class="btn text" id="toggleBrief" type="button">＋ 替换商品与模特</button>
         <button class="btn text" id="upload" type="button">${icon(I.upload)}上传本地视频</button>
         <a class="btn text" href="#/guide">使用流程 →</a>
@@ -128,21 +132,23 @@ function renderHome({ focus = false, toLibrary = false } = {}) {
     <button class="scroll" id="scrollBtn" type="button">SCROLL ${icon(I.down)}</button>
   </section>
 
+  <section class="marquee" aria-hidden="true"><div class="track">${marquee()}${marquee()}</div></section>
+
   <section class="section" id="about">
     <div class="statement">
-      <div><span class="tag">关于复刻 Studio</span></div>
-      <h2>我们把<em>爆款视频</em>拆成一个个镜头，再编译成<em>可复刻</em>的英文提示词，让每一条都能<em>稳定出片</em>。</h2>
+      <div class="reveal"><span class="idx">(01)</span><br><span class="tag" style="margin-top:12px">关于复刻 Studio</span></div>
+      <h2 class="lit">${splitChars('我们把<em>爆款视频</em>拆成一个个镜头，再编译成<em>可复刻</em>的英文提示词，让每一条都能<em>稳定出片</em>。')}</h2>
     </div>
     <div class="stats-row">
-      <div class="kpi rise" style="--i:1"><span>片库</span><b id="kpiJobs">0</b><small>条已拆解视频</small></div>
-      <div class="kpi rise" style="--i:2"><span>镜头</span><b id="kpiShots">0</b><small>个带关键帧的分镜</small></div>
-      <div class="kpi rise" style="--i:3"><span>每段时长</span><b>≤15s</b><small>匹配 Seedance 单次生成</small></div>
-      <div class="kpi rise" style="--i:4"><span>引擎在线</span><b id="kpiEngines">–</b><small>MediaCrawler · TikHub · DeepSeek · FFmpeg</small></div>
+      <div class="kpi reveal" style="--i:0"><span class="idx">01</span><span>片库</span><b data-count="0" id="kpiJobs">0</b><small>条已拆解视频</small></div>
+      <div class="kpi reveal" style="--i:1"><span class="idx">02</span><span>镜头</span><b data-count="0" id="kpiShots">0</b><small>个带关键帧的分镜</small></div>
+      <div class="kpi reveal" style="--i:2"><span class="idx">03</span><span>每段时长</span><b>≤<span data-count="15" data-suffix="s">0s</span></b><small>对齐 Seedance 单次生成上限</small></div>
+      <div class="kpi reveal" style="--i:3"><span class="idx">04</span><span>引擎在线</span><b id="kpiEngines">–</b><small>MediaCrawler · TikHub · DeepSeek · FFmpeg</small></div>
     </div>
   </section>
 
   <section class="section" id="lib">
-    <div class="lib-head"><div><span class="tag">片库</span><h2>最近拆解</h2></div><div class="cats" id="cats"></div></div>
+    <div class="lib-head reveal"><div><span class="idx">(02)</span><h2>最近拆解</h2></div><div class="cats" id="cats"></div></div>
     <div class="masonry" id="library"></div>
   </section>`;
 
@@ -174,7 +180,12 @@ function renderHome({ focus = false, toLibrary = false } = {}) {
 function renderLibrary() {
   const cats = $('#cats'), el = $('#library');
   if (!el) return;
-  if ($('#kpiJobs')) { $('#kpiJobs').textContent = state.jobs.length; $('#kpiShots').textContent = state.jobs.reduce((n, j) => n + (j.shots || 0), 0); }
+  for (const [id, v] of [['#kpiJobs', state.jobs.length], ['#kpiShots', state.jobs.reduce((n, j) => n + (j.shots || 0), 0)]]) {
+    const k = $(id);
+    if (!k) continue;
+    k.dataset.count = v;
+    if (k.classList.contains('in')) countUp(k);
+  }
   const counts = state.jobs.reduce((m, j) => ({ ...m, [j.platform]: (m[j.platform] || 0) + 1 }), {});
   cats.innerHTML = [['all', '全部', state.jobs.length], ...Object.entries(PLATFORMS).map(([id, [label]]) => [id, label, counts[id] || 0])]
     .filter(([id, , n]) => id === 'all' || n)
@@ -186,7 +197,7 @@ function renderLibrary() {
   el.innerHTML = jobs.map((j, i) => {
     const [pl, color] = PLATFORMS[j.platform] || ['', '#999'];
     const st = j.running ? ['running', '拆解中'] : j.status === 'done' ? ['done', '已完成'] : ['failed', '未完成'];
-    return `<a class="card rise" style="--i:${Math.min(i, 10)}" href="#/job/${j.id}">
+    return `<a class="card tilt reveal" style="--i:${Math.min(i, 6)}" href="#/job/${j.id}">
       <div class="thumb">
         ${j.cover ? `<img src="${file(j.id, j.cover)}" alt="" loading="lazy">` : '<div class="ph skeleton" style="border-radius:0"></div>'}
         ${j.duration ? `<span class="pill">${icon(I.play)}${tc(j.duration).replace(/\.\d$/, '')}</span>` : ''}
@@ -199,6 +210,7 @@ function renderLibrary() {
           <span class="num">${j.likes != null ? `<span>${icon(I.heart)}${big(j.likes)}</span>` : ''}<span>${icon(I.film)}${j.shots || 0}</span></span></div>
       </div></a>`;
   }).join('');
+  refresh(el);
 }
 
 function renderGuide() {
@@ -468,7 +480,15 @@ function renderTabBody(job) {
     };
     $('#open').onclick = () => api(`/api/jobs/${job.id}/open`, { method: 'POST' }).catch(err => toast(err.message, true));
   }
-  body.querySelectorAll('[data-copy]').forEach(btn => { btn.onclick = e => { e.stopPropagation(); copy(btn.dataset.copy); }; });
+  body.querySelectorAll('[data-copy]').forEach(btn => {
+    btn.onclick = e => {
+      e.stopPropagation();
+      copy(btn.dataset.copy);
+      const html = btn.innerHTML;
+      btn.classList.add('copied'); btn.innerHTML = '已复制';
+      setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = html; }, 1400);
+    };
+  });
 }
 
 async function uploadAsset(job, role, f) {
@@ -504,19 +524,22 @@ async function refreshJob(id) {
 /* ───────── router ───────── */
 async function route() {
   clearTimeout(state.poll);
-  if (!location.hash.startsWith('#/library')) window.scrollTo({ top: 0 });
   const m = location.hash.match(/^#\/job\/([\w-]+)/);
+  if (!location.hash.startsWith('#/library')) window.scrollTo({ top: 0 });
   if (m) {
     state.job = null; state.tab = 'overview';
-    renderJobShell();
+    await transition(() => renderJobShell());
+    mount(app);
     try { await refreshJob(m[1]); } catch (err) { app.innerHTML = `<div class="empty" style="margin-top:60px"><strong>找不到这条拆解</strong>${esc(err.message)}<br><br><a class="btn" href="#/">回到片库</a></div>`; }
-    renderRecent();
     return;
   }
   state.job = null;
-  app.classList.remove('full');
-  if (location.hash.startsWith('#/guide')) renderGuide();
-  else renderHome({ focus: location.hash.startsWith('#/new'), toLibrary: location.hash.startsWith('#/library') });
+  await transition(() => {
+    app.classList.remove('full');
+    if (location.hash.startsWith('#/guide')) renderGuide();
+    else renderHome({ focus: location.hash.startsWith('#/new'), toLibrary: location.hash.startsWith('#/library') });
+  });
+  mount(app);
   loadJobs();
 }
 
@@ -528,5 +551,7 @@ async function loadJobs() {
 }
 
 window.addEventListener('hashchange', route);
+window.addEventListener('resize', () => requestAnimationFrame(moveIndicator));
+document.fonts?.ready.then(moveIndicator);
 api('/api/health').then(h => { state.health = h; renderEngines(); }).catch(() => {});
 route();

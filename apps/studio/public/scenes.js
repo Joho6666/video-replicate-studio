@@ -45,23 +45,23 @@ export const lightScene = () => `
   </defs>
   <rect width="1600" height="1000" fill="url(#sky)"/>
   <rect width="1600" height="1000" fill="url(#sun)"/>
-  <g class="drift" opacity=".32">
+  <g class="px" data-depth="4"><g class="drift" opacity=".32">
     <ellipse cx="300" cy="150" rx="190" ry="26" fill="#fff" filter="url(#cloud)"/><ellipse cx="900" cy="110" rx="240" ry="22" fill="#fff" filter="url(#cloud)"/><ellipse cx="1500" cy="190" rx="200" ry="24" fill="#fff" filter="url(#cloud)"/><ellipse cx="1900" cy="130" rx="220" ry="20" fill="#fff" filter="url(#cloud)"/>
-  </g>
-  <path d="M0 610 L150 520 L270 560 L420 450 L530 505 L660 470 L790 540 L920 480 L1060 560 L1190 485 L1330 545 L1470 470 L1600 520 L1600 720 L0 720Z" fill="#a898b6" opacity=".45" filter="url(#blurfar)"/>
-  <path d="M0 640 L40 470 L110 330 L150 350 L205 215 L240 190 L285 250 L330 300 L390 420 L470 560 L560 690 L0 720Z" fill="url(#rock)"/>
-  <path d="M205 215 L240 190 L262 300 L230 420 L200 560 L160 690 L120 600 L150 420Z" fill="#fff" opacity=".18"/>
-  <path d="M1020 700 L1170 540 L1240 575 L1350 470 L1440 520 L1540 460 L1600 480 L1600 780 Z" fill="#7d8b6a" opacity=".85"/>
-  <path d="M0 720 C160 640 330 650 520 700 C700 748 880 668 1060 676 C1250 684 1430 626 1600 650 L1600 1000 L0 1000Z" fill="url(#hill)"/>
+  </g></g>
+  <g class="px" data-depth="8"><path d="M0 610 L150 520 L270 560 L420 450 L530 505 L660 470 L790 540 L920 480 L1060 560 L1190 485 L1330 545 L1470 470 L1600 520 L1600 720 L0 720Z" fill="#a898b6" opacity=".45" filter="url(#blurfar)"/></g>
+  <g class="px" data-depth="14"><path d="M0 640 L40 470 L110 330 L150 350 L205 215 L240 190 L285 250 L330 300 L390 420 L470 560 L560 690 L0 720Z" fill="url(#rock)"/>
+  <path d="M205 215 L240 190 L262 300 L230 420 L200 560 L160 690 L120 600 L150 420Z" fill="#fff" opacity=".18"/></g>
+  <g class="px" data-depth="14"><path d="M1020 700 L1170 540 L1240 575 L1350 470 L1440 520 L1540 460 L1600 480 L1600 780 Z" fill="#7d8b6a" opacity=".85"/></g>
+  <g class="px" data-depth="22"><path d="M0 720 C160 640 330 650 520 700 C700 748 880 668 1060 676 C1250 684 1430 626 1600 650 L1600 1000 L0 1000Z" fill="url(#hill)"/>
   <path d="M760 760 C900 700 1060 720 1200 700 C1350 680 1480 700 1600 690 L1600 1000 L700 1000Z" fill="url(#hill2)"/>
   <g fill="#4a3a24"><circle cx="355" cy="700" r="30"/><circle cx="380" cy="690" r="26"/><circle cx="1260" cy="690" r="42"/><circle cx="1290" cy="672" r="36"/><circle cx="1320" cy="696" r="30"/></g>
   <g fill="#6a4a2a" opacity=".9"><circle cx="370" cy="712" r="20"/><circle cx="1284" cy="712" r="26"/></g>
   <rect x="352" y="712" width="6" height="30" fill="#3a2a18"/><rect x="1284" y="716" width="8" height="40" fill="#3a2a18"/>
-  <g transform="translate(60 690)"><path d="M0 40 L70 10 L140 40 L140 90 L0 90Z" fill="#ece6de"/><path d="M-8 44 L70 4 L150 44 L140 48 L70 14 L0 48Z" fill="#4b4540"/><rect x="95" y="58" width="22" height="32" fill="#8c7f72"/></g>
+  <g transform="translate(60 690)"><path d="M0 40 L70 10 L140 40 L140 90 L0 90Z" fill="#ece6de"/><path d="M-8 44 L70 4 L150 44 L140 48 L70 14 L0 48Z" fill="#4b4540"/><rect x="95" y="58" width="22" height="32" fill="#8c7f72"/></g></g>
   <rect width="1600" height="1000" fill="url(#haze)"/>
-  <path d="M0 830 C300 770 620 800 900 790 C1180 780 1400 752 1600 770 L1600 1000 L0 1000Z" fill="url(#meadow)"/>
+  <g class="px" data-depth="36"><path d="M0 830 C300 770 620 800 900 790 C1180 780 1400 752 1600 770 L1600 1000 L0 1000Z" fill="url(#meadow)"/>
   <g class="sway">${grass()}</g>
-  <g class="sway" filter="url(#soft)">${flowers()}</g>
+  <g class="sway" filter="url(#soft)">${flowers()}</g></g>
   <rect width="1600" height="1000" fill="url(#haze)" opacity=".4"/>
 </svg>`;
 
@@ -104,13 +104,13 @@ export const darkScene = () => `
   </defs>
   <rect width="1600" height="1000" fill="#040404"/>
   <rect width="1600" height="1000" fill="url(#aura)"/>
-  <g>${motes()}</g>
-  <g class="jelly">
+  <g class="px" data-depth="10">${motes()}</g>
+  <g class="px" data-depth="34"><g class="jelly">
     <g filter="url(#glow2)">${tentacles()}</g>
     <path d="M900 470 C880 250 1010 170 1130 180 C1260 190 1330 300 1300 470 C1270 450 1245 490 1215 468 C1185 492 1155 452 1125 476 C1095 496 1065 455 1035 478 C1005 496 975 455 945 480 C925 490 912 470 900 470Z" fill="url(#bell)" filter="url(#glow)" opacity=".78"/>
     <path d="M960 420 C960 300 1040 235 1110 232 M1030 440 C1040 330 1090 270 1150 262 M1110 450 C1130 350 1180 300 1235 300" stroke="#ffd2c4" stroke-opacity=".35" stroke-width="3" fill="none"/>
     <ellipse cx="1090" cy="260" rx="70" ry="30" fill="#fff" opacity=".12"/>
-  </g>
+  </g></g>
   <linearGradient id="fadeL" x1="0" x2="1"><stop offset="0" stop-color="#040404" stop-opacity=".85"/><stop offset=".55" stop-color="#040404" stop-opacity="0"/></linearGradient>
   <rect width="1600" height="1000" fill="url(#fadeL)"/>
 </svg>`;
