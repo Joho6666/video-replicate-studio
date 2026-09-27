@@ -1,5 +1,6 @@
 // 复刻 Studio — zero-dependency client
 import { darkScene, lightScene } from './scenes.js';
+import { bindGuide, guideHtml } from './guide.js';
 import { countUp, mount, moveIndicator, refresh, splitChars, transition } from './fx.js';
 const $ = (sel, root = document) => root.querySelector(sel);
 const app = $('#app');
@@ -218,7 +219,8 @@ function renderHome({ focus = false, toLibrary = false } = {}) {
 function updateDemoLink() {
   const a = $('#demoLink');
   if (!a) return;
-  const demo = state.jobs.find(j => j.status === 'done' && j.hasPrompts);
+  const done = state.jobs.filter(j => j.status === 'done' && j.hasPrompts);
+  const demo = done.find(j => /^教程示例/.test(j.title || '')) || done[0];
   if (demo) { a.href = `#/job/${demo.id}`; a.title = (demo.title || '').split('\n')[0]; }
 }
 
@@ -259,17 +261,12 @@ function renderLibrary() {
   refresh(el);
 }
 
+let unbindGuide = null;
 function renderGuide() {
-  crumbs([['首页', '#/'], ['使用流程', '']]);
+  crumbs([['首页', '#/'], ['使用教程', '']]);
   setNav('guide');
-  app.innerHTML = `<section class="guide-hero"><span class="tag rise">从链接到成片</span><h1 class="rise" style="--i:1">四步走完<em>一条复刻</em></h1></section>
-    <div class="guide">${[
-      ['01', '粘贴链接', '抖音 / B站 由 MediaCrawler 抓取（首次扫码登录），TikTok / Instagram 走 TikHub。也可以直接上传本地视频。'],
-      ['02', '自动切镜', 'FFmpeg 识别硬切，长镜头按 5 秒节拍细分，每个镜头取一张关键帧，按 15 秒切成生成段。'],
-      ['03', 'AI 导演', '依据 AI Director Skill：中文讲清爆点，英文编译 Seedance 分段提示词，全程绑定 @Image1 模特与 @Image2 商品。'],
-      ['04', 'LibTV 出片', '导出素材包：每段参考片段（@Video1）、替换素材、提示词与分镜表。逐段上传生成，再拼接成片。'],
-    ].map(([n, t, d], i) => `<div class="gstep rise" style="--i:${i + 2}"><b>${n}</b><h4>${t}</h4><p>${d}</p></div>`).join('')}</div>
-    <div class="actions" style="justify-content:center;margin-top:34px"><a class="btn ink" href="#/new">开始第一条 ${icon(I.arrow)}</a></div>`;
+  app.innerHTML = guideHtml();
+  unbindGuide = bindGuide(app);
 }
 
 const readBrief = () => Object.fromEntries([...document.querySelectorAll('#brief input, #brief textarea')].map(el => [el.name, el.value.trim()]));
@@ -714,6 +711,7 @@ async function refreshJob(id) {
 /* ───────── router ───────── */
 async function route() {
   clearTimeout(state.poll);
+  if (unbindGuide) { unbindGuide(); unbindGuide = null; }
   const m = location.hash.match(/^#\/job\/([\w-]+)/);
   if (!location.hash.startsWith('#/library')) window.scrollTo({ top: 0 });
   if (m) {

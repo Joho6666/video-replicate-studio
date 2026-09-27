@@ -11,3 +11,5 @@ apps/media-crawler/*_user_data_dir/
 apps/media-crawler/.env
 .cache/
 *.zip
+# tutorial screenshots contain third-party video frames; regenerate with scripts/capture_tutorial.py
+apps/studio/public/tutorial/

@@ -608,3 +608,60 @@ body.dragging-files .picker-more { border-color: var(--accent); color: var(--acc
 .picker.want { border-color: var(--accent); animation: pickPulse 1.4s ease-in-out 3; }
 .picker.want .dropzone span::after { content: " · 这个场景需要"; color: var(--accent); font-weight: 600; font-size: 12px; }
 @media (max-width: 1000px) { .templates { grid-template-columns: 1fr 1fr; } }
+
+/* ───── tutorial ───── */
+.guide-sub { max-width: 40em; margin: 14px auto 0; color: var(--text-2); font-size: 15px; }
+.guide-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 48px; margin-top: 44px; align-items: start; }
+.toc { position: sticky; top: 96px; display: flex; flex-direction: column; gap: 2px; }
+.toc a[data-step] { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-radius: 12px; font-size: 13.5px; color: var(--text-2); transition: background .2s, color .2s; }
+.toc a[data-step] b { font: 600 11px var(--mono); width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); color: var(--muted); flex: none; transition: background .2s, color .2s; }
+.toc a[data-step]:hover { background: var(--surface-2); color: var(--text); }
+.toc a[data-step].on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--shadow-s); }
+.toc a[data-step].on b { background: var(--accent); color: #fff; }
+.toc-cta { margin-top: 14px; }
+.guide-body { min-width: 0; max-width: 900px; }
+.gsec { padding: 8px 0 48px; margin-bottom: 8px; border-bottom: 1px solid var(--line); scroll-margin-top: 90px; }
+.gsec header { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.gsec .num { font: 400 44px/1 var(--latin); letter-spacing: -.05em; color: var(--accent); min-width: 58px; }
+.gsec h2 { margin: 0; font: 700 clamp(22px, 2.2vw, 30px)/1.25 var(--display); letter-spacing: -.02em; flex: 1; }
+.gsec .time { font: 500 12px var(--mono); color: var(--muted); padding: 4px 10px; border-radius: 999px; background: var(--surface-2); white-space: nowrap; }
+.gsec p, .gsec li { font-size: 15px; line-height: 1.85; color: var(--text-2); }
+.gsec p b, .gsec li b { color: var(--text); }
+.gsec code, .gsec kbd { font: 500 12.5px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface-3); color: var(--text); }
+.gsec kbd { border: 1px solid var(--line-2); border-bottom-width: 2px; }
+.shot-fig { margin: 18px 0 22px; }
+.shot-fig img { width: 100%; height: auto; border-radius: 16px; border: 1px solid var(--line); box-shadow: var(--shadow-m); cursor: zoom-in; background: var(--surface-2); transition: transform .4s var(--ease); }
+.shot-fig img:hover { transform: translateY(-2px); }
+.shot-fig figcaption { margin-top: 10px; font-size: 12.5px; color: var(--muted); display: flex; gap: 8px; align-items: baseline; }
+.shot-fig figcaption::before { content: "▲"; color: var(--accent); font-size: 9px; }
+.shot-fig.missing img { display: none; }
+.shot-fig.missing::before { content: "截图未生成：运行 scripts/capture_tutorial.py 生成教程截图"; display: block; padding: 40px; border-radius: 16px; border: 1.5px dashed var(--line-2); color: var(--muted); font-size: 13px; text-align: center; }
+.tbl { width: 100%; border-collapse: separate; border-spacing: 0; margin: 14px 0 18px; font-size: 13.5px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
+.tbl th { text-align: left; font-weight: 600; font-size: 12px; color: var(--muted); background: var(--surface-2); padding: 10px 14px; }
+.tbl td { padding: 11px 14px; border-top: 1px solid var(--line); color: var(--text-2); vertical-align: top; }
+.tbl td:first-child { color: var(--text); font-weight: 600; white-space: nowrap; }
+.callout { display: flex; gap: 12px; margin: 16px 0; padding: 14px 16px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); }
+.callout b { flex: none; font-size: 12px; color: var(--accent); padding-top: 3px; }
+.callout p { margin: 0; font-size: 14px !important; }
+.callout.warn { border-left-color: var(--warn); } .callout.warn b { color: var(--warn); }
+.callout.good { border-left-color: var(--ok); } .callout.good b { color: var(--ok); }
+.checks { padding-left: 0; list-style: none; }
+.checks li { position: relative; padding-left: 26px; }
+.checks li::before { content: ""; position: absolute; left: 4px; top: .75em; width: 10px; height: 6px; border-left: 2px solid var(--accent); border-bottom: 2px solid var(--accent); transform: rotate(-45deg); }
+.steps-ol { counter-reset: s; list-style: none; padding-left: 0; }
+.steps-ol li { counter-increment: s; position: relative; padding-left: 38px; margin: 8px 0; }
+.steps-ol li::before { content: counter(s); position: absolute; left: 0; top: .2em; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font: 700 11px var(--mono); background: var(--accent-soft); color: var(--accent); }
+.tree { font: 12.5px/1.8 var(--mono); padding: 16px 18px; border-radius: 14px; background: var(--film); color: #ddd; overflow-x: auto; }
+.gsec details { border-radius: 14px; border: 1px solid var(--line); background: var(--surface); margin: 10px 0; padding: 0 16px; }
+.gsec details summary { cursor: pointer; padding: 14px 0; font-weight: 600; font-size: 14.5px; list-style: none; display: flex; justify-content: space-between; }
+.gsec details summary::-webkit-details-marker { display: none; }
+.gsec details summary::after { content: "+"; color: var(--accent); font-size: 18px; transition: transform .25s; }
+.gsec details[open] summary::after { transform: rotate(45deg); }
+.gsec details p { margin: 0 0 14px; font-size: 14px; }
+.guide-end { text-align: center; padding: 50px 20px 10px; }
+.guide-end h3 { margin: 0; font: 700 28px var(--display); letter-spacing: -.02em; }
+.guide-end p { color: var(--text-2); margin: 8px 0 20px; }
+.lightbox { position: fixed; inset: 0; z-index: 200; background: rgba(10, 10, 10, .82); backdrop-filter: blur(6px); display: grid; place-items: center; padding: 4vh 4vw; cursor: zoom-out; }
+.lightbox[hidden] { display: none; }
+.lightbox img { max-width: 100%; max-height: 92vh; border-radius: 14px; box-shadow: 0 30px 80px rgba(0, 0, 0, .6); }
+@media (max-width: 980px) { .guide-layout { grid-template-columns: 1fr; } .toc { position: static; flex-direction: row; flex-wrap: wrap; } .toc a[data-step] span { display: none; } }
