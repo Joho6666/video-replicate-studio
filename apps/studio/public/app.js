@@ -6,7 +6,7 @@ const app = $('#app');
 
 const state = {
   health: null, jobs: [], job: null, tab: 'overview', poll: null, sig: {}, exportPath: null,
-  pending: { model: [], product: [], style: [] }, showStyle: false, filter: 'all', refStyle: localStorage.getItem('studio-ref') || 'en', copyTone: 'seed', copyTarget: 'douyin', copyBusy: false,
+  pending: { model: [], product: [], style: [] }, showStyle: false, template: null, filter: 'all', refStyle: localStorage.getItem('studio-ref') || 'en', copyTone: 'seed', copyTarget: 'douyin', copyBusy: false,
 };
 
 /* ───────── utils ───────── */
@@ -31,6 +31,18 @@ const REF_LABEL = { en: '@Image1', zh: '@图片1', plain: 'Image 1' };
 const REF_HL = { en: /@(?:Video|Image)\d+/g, zh: /@(?:视频|图片)\d+/g, plain: /\b(?:Video|Image) \d+/g };
 const R = token => { const m = String(token).match(/^@(Video|Image)(\d+)$/); return m ? REF_FMT[state.refStyle](m[1], m[2]) : token; };
 const refText = t => String(t || '').replace(/@(?:Video|Image)\d+/g, R);
+
+/* scenario templates: pick one to see what to prepare */
+const TEMPLATES = [
+  { id: 'wear', title: '服装上身', line: '穿搭类爆款 → 你的模特穿你的衣服', needs: ['model', 'product'], icon: 'M8 4l4 2 4-2 4 3-3 3v10H7V10L4 7z',
+    goal: '保留原片的走位、转身和运镜节奏，换成我的模特穿我的衣服，重点展示正面、背面和面料细节。' },
+  { id: 'show', title: '商品展示', line: '开箱 / 特写类爆款 → 换成你的商品', needs: ['product'], icon: 'M4 8l8-4 8 4v8l-8 4-8-4z M4 8l8 4 8-4 M12 12v8',
+    goal: '保留原片的开箱节奏和特写镜头，把商品换成我的，按顺序突出外观、细节和使用场景。' },
+  { id: 'talk', title: '口播种草', line: '真人口播爆款 → 你的模特讲你的商品', needs: ['model', 'product'], icon: 'M5 5h14v10H9l-4 4z M9 10h6',
+    goal: '保留原片口播的机位、节奏和表情变化，换成我的模特手拿我的商品介绍，开头 3 秒直接抛出痛点。' },
+  { id: 'story', title: '剧情短片', line: '剧情 / 反转类爆款 → 你的角色', needs: ['model', 'style'], icon: 'M4 5h16v14H4z M4 9h16 M8 5l-2 4 M13 5l-2 4 M18 5l-2 4',
+    goal: '保留原片的剧情分镜和转场，换成我的模特做主角，画面走我参考图的色调和氛围。' },
+];
 
 /* image roles — mirrors lib/refs.mjs */
 const ROLES = {
@@ -136,7 +148,8 @@ function renderHome({ focus = false, toLibrary = false } = {}) {
           <button class="btn ink magnetic" data-strength=".18" id="go" type="submit">开始分析 ${icon(I.arrow)}</button>
         </div>
         <div class="brief open" id="brief">
-          <div class="brief-head"><span class="idx">复刻设置</span><small>都可以留空，之后在「素材与导出」里再补</small></div>
+          <div class="brief-head"><span class="idx">复刻设置</span><small>不知道怎么填？先选一个场景 · 都可以留空，之后再补</small></div>
+          <div class="templates wide" id="tpls">${TEMPLATES.map(t => `<button type="button" class="tpl" data-tpl="${t.id}"><svg viewBox="0 0 24 24" class="ic"><path d="${t.icon}"/></svg><span><b>${t.title}</b><small>${t.line}</small><i>${['链接', ...t.needs.map(r => ({ model: '模特', product: '衣服/商品', style: '效果参考' })[r])].join(' + ')}</i></span></button>`).join('')}</div>
           <div class="field wide"><label>想要的效果</label><textarea name="goal" rows="2" placeholder="例：保留原片的节奏和运镜，换成我的模特穿米色羽绒服，画面更明亮干净，适合冬季上新"></textarea></div>
           <div class="pickers wide" id="pickers"></div>
           <div class="field"><label>商品名称</label><input name="product" placeholder="例：米色轻暖连帽羽绒服"></div>
@@ -146,7 +159,7 @@ function renderHome({ focus = false, toLibrary = false } = {}) {
       <div class="hero-actions rise" style="--i:6">
         <button class="btn text" id="toggleBrief" type="button">收起复刻设置</button>
         <button class="btn text" id="upload" type="button">${icon(I.upload)}用本地视频</button>
-        <a class="btn text" href="#/guide">使用流程 →</a>
+        <a class="btn text" id="demoLink" href="#/guide">看一个真实案例 →</a>
       </div>
       <input type="file" id="uploadInput" accept="video/*" hidden>
     </div>
@@ -182,6 +195,7 @@ function renderHome({ focus = false, toLibrary = false } = {}) {
   link.addEventListener('input', sync);
   if (focus) setTimeout(() => link.focus(), 400);
   $('#scrollBtn').onclick = () => $('#about').scrollIntoView({ behavior: 'smooth' });
+  $('#tpls').querySelectorAll('.tpl').forEach(b => { b.onclick = () => applyTemplate(b.dataset.tpl); });
   $('#toggleBrief').onclick = () => { const open = $('#brief').classList.toggle('open'); $('#toggleBrief').textContent = open ? '收起复刻设置' : '＋ 复刻设置（效果 / 模特 / 衣服 / 参考图）'; };
   renderPickers();
   $('#upload').onclick = () => $('#uploadInput').click();
@@ -201,7 +215,15 @@ function renderHome({ focus = false, toLibrary = false } = {}) {
   if (toLibrary) setTimeout(() => $('#lib').scrollIntoView({ behavior: 'smooth' }), 200);
 }
 
+function updateDemoLink() {
+  const a = $('#demoLink');
+  if (!a) return;
+  const demo = state.jobs.find(j => j.status === 'done' && j.hasPrompts);
+  if (demo) { a.href = `#/job/${demo.id}`; a.title = (demo.title || '').split('\n')[0]; }
+}
+
 function renderLibrary() {
+  updateDemoLink();
   const cats = $('#cats'), el = $('#library');
   if (!el) return;
   for (const [id, v] of [['#kpiJobs', state.jobs.length], ['#kpiShots', state.jobs.reduce((n, j) => n + (j.shots || 0), 0)]]) {
@@ -264,7 +286,8 @@ function pickerBlock(role, items) {
     ? `<label class="dropzone">${icon(I.upload)}<span>拖拽图片到这里</span><small>或点击选择 · 支持 Ctrl+V 粘贴</small>${input}</label>`
     : `<div class="thumbs">${items.map(it => `<figure><img src="${it.src}" alt=""><figcaption>${R(it.token)}</figcaption><button type="button" data-rm="${esc(it.rm)}" aria-label="移除">×</button></figure>`).join('')}
         ${cfg.max === 1 || items.length < cfg.max ? `<label class="add">${icon(I.upload)}<span>${cfg.max === 1 ? '替换' : '再加'}</span>${input}</label>` : ''}</div>`;
-  return `<div class="picker ${role === 'model' ? 'lead' : ''} ${role === 'style' ? 'optional' : ''}" data-role="${role}">
+  const want = TEMPLATES.find(t => t.id === state.template)?.needs.includes(role) && !items.length;
+  return `<div class="picker ${role === 'model' ? 'lead' : ''} ${role === 'style' ? 'optional' : ''} ${want ? 'want' : ''}" data-role="${role}">
     <div class="picker-head"><b>${cfg.label}${role === 'style' ? '<em>可选</em>' : ''}</b><small>${cfg.hint}</small></div>${body}</div>`;
 }
 
@@ -300,6 +323,19 @@ function addPending(role, files) {
   renderPickers();
 }
 
+function applyTemplate(id) {
+  const t = TEMPLATES.find(x => x.id === id);
+  if (!t) return;
+  state.template = id;
+  const goal = document.querySelector('#brief textarea[name=goal]');
+  if (goal && (!goal.value.trim() || TEMPLATES.some(x => x.goal === goal.value.trim()))) goal.value = t.goal;
+  if (t.needs.includes('style')) state.showStyle = true;
+  document.querySelectorAll('.tpl').forEach(b => b.classList.toggle('on', b.dataset.tpl === id));
+  renderPickers();
+  const missing = t.needs.filter(r => !state.pending[r].length).map(r => ROLES[r].label);
+  toast(missing.length ? `「${t.title}」还需要上传：${missing.join('、')}` : `「${t.title}」素材已齐`);
+}
+
 function renderPickers() {
   const box = $('#pickers');
   if (!box) return;
@@ -322,6 +358,7 @@ async function sendPending(jobId) {
     await api(`/api/jobs/${jobId}/start`, { method: 'POST' });
     Object.values(state.pending).flat().forEach(f => URL.revokeObjectURL(f.url));
     state.pending = { model: [], product: [], style: [] };
+    state.template = null;
   }
 }
 

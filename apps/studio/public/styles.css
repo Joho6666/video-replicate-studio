@@ -594,3 +594,17 @@ body.dragging-files .picker-more { border-color: var(--accent); color: var(--acc
 .next-step > div { flex: 1; min-width: 0; }
 .next-step strong { font-size: 15px; }
 .next-step p { margin: 3px 0 0; font-size: 13px; color: var(--text-2); }
+
+/* scenario templates */
+.templates { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.tpl { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 11px 12px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-solid); cursor: pointer; color: var(--text); transition: transform .25s var(--ease), border-color .2s, box-shadow .25s, background .2s; }
+.tpl:hover { transform: translateY(-2px); border-color: var(--accent-line); box-shadow: var(--shadow-s); }
+.tpl .ic { width: 20px; height: 20px; color: var(--accent); margin-top: 1px; }
+.tpl span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tpl b { font-size: 13.5px; }
+.tpl small { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+.tpl i { font-style: normal; font-size: 10.5px; font-weight: 600; color: var(--accent); margin-top: 3px; }
+.tpl.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-soft); }
+.picker.want { border-color: var(--accent); animation: pickPulse 1.4s ease-in-out 3; }
+.picker.want .dropzone span::after { content: " · 这个场景需要"; color: var(--accent); font-weight: 600; font-size: 12px; }
+@media (max-width: 1000px) { .templates { grid-template-columns: 1fr 1fr; } }
