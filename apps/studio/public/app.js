@@ -6,7 +6,7 @@ const app = $('#app');
 
 const state = {
   health: null, jobs: [], job: null, tab: 'overview', poll: null, sig: {}, exportPath: null,
-  pending: { model: [], product: [], style: [] }, filter: 'all', refStyle: localStorage.getItem('studio-ref') || 'en', copyTone: 'seed', copyTarget: 'douyin', copyBusy: false,
+  pending: { model: [], product: [], style: [] }, showStyle: false, filter: 'all', refStyle: localStorage.getItem('studio-ref') || 'en', copyTone: 'seed', copyTarget: 'douyin', copyBusy: false,
 };
 
 /* ───────── utils ───────── */
@@ -34,9 +34,9 @@ const refText = t => String(t || '').replace(/@(?:Video|Image)\d+/g, R);
 
 /* image roles — mirrors lib/refs.mjs */
 const ROLES = {
-  model: { label: '模特', max: 1, hint: '1 张 · 正脸清晰、全身更好' },
+  model: { label: '你的模特', max: 1, hint: '主角 · 1 张，正脸清晰，全身更好' },
   product: { label: '衣服 / 商品', max: 3, hint: '最多 3 张 · 正面、背面、细节' },
-  style: { label: '效果参考', max: 3, hint: '最多 3 张 · 想要的色调、场景、氛围' },
+  style: { label: '效果参考', max: 3, hint: '可选 · 最多 3 张，想要的色调、场景、氛围' },
 };
 function refMap(assets = []) {
   const of = r => assets.filter(a => a.role === r);
@@ -126,9 +126,9 @@ function renderHome({ focus = false, toLibrary = false } = {}) {
   <section class="hero">
     <div class="scene">${lightScene()}${darkScene()}</div>
     <div class="hero-inner">
-      <span class="meta-line rise"><i></i><span>v0.3</span><span>抖音 · B站 · TikTok · Instagram</span><span>约 60 秒出结果</span></span>
-      <h1><span class="ln"><span style="--l:0">复刻爆款，</span></span><span class="ln"><span style="--l:1">从一条<em>链接</em>开始。</span></span></h1>
-      <p class="sub rise" style="--i:4">贴一条链接，大约一分钟后拿到分镜、钩子拆解，<br>和能直接贴进 LibTV 的英文提示词。</p>
+      <ol class="flow rise"><li><b>01</b>抓取爆款</li><li><b>02</b>拆解分析</li><li><b>03</b>换上你的模特</li><li><b>04</b>出成片</li></ol>
+      <h1><span class="ln"><span style="--l:0">抓一条爆款，</span></span><span class="ln"><span style="--l:1">换上<em>你的模特</em>。</span></span></h1>
+      <p class="sub rise" style="--i:4">粘贴链接自动抓取，AI 拆解镜头与爆点，<br>再套上你的模特和商品，生成能直接出片的提示词。</p>
       <form class="composer rise" style="--i:5" id="slate">
         <div class="search">
           <input id="link" autocomplete="off" placeholder="粘贴抖音 / B站 / TikTok / Instagram 爆款链接…">
@@ -253,38 +253,59 @@ function renderGuide() {
 const readBrief = () => Object.fromEntries([...document.querySelectorAll('#brief input, #brief textarea')].map(el => [el.name, el.value.trim()]));
 const pendingCount = () => Object.values(state.pending).reduce((n, l) => n + l.length, 0);
 
+/** One upload group. items: [{ src, token, rm }] where rm is the value for data-rm. */
+function pickerBlock(role, items) {
+  const cfg = ROLES[role];
+  if (role === 'style' && !items.length && !state.showStyle) {
+    return `<button type="button" class="picker-more" data-show-style>＋ 效果参考图<em>可选</em><small>想要的色调、场景、氛围，可以不放</small></button>`;
+  }
+  const input = `<input type="file" accept="image/jpeg,image/png,image/webp" ${cfg.max > 1 ? 'multiple' : ''} hidden>`;
+  const body = !items.length
+    ? `<label class="dropzone">${icon(I.upload)}<span>拖拽图片到这里</span><small>或点击选择 · 支持 Ctrl+V 粘贴</small>${input}</label>`
+    : `<div class="thumbs">${items.map(it => `<figure><img src="${it.src}" alt=""><figcaption>${R(it.token)}</figcaption><button type="button" data-rm="${esc(it.rm)}" aria-label="移除">×</button></figure>`).join('')}
+        ${cfg.max === 1 || items.length < cfg.max ? `<label class="add">${icon(I.upload)}<span>${cfg.max === 1 ? '替换' : '再加'}</span>${input}</label>` : ''}</div>`;
+  return `<div class="picker ${role === 'model' ? 'lead' : ''} ${role === 'style' ? 'optional' : ''}" data-role="${role}">
+    <div class="picker-head"><b>${cfg.label}${role === 'style' ? '<em>可选</em>' : ''}</b><small>${cfg.hint}</small></div>${body}</div>`;
+}
+
+function bindPickers(root, add, remove) {
+  root.querySelectorAll('.picker').forEach(el => {
+    const role = el.dataset.role;
+    el.querySelector('input')?.addEventListener('change', e => add(role, e.target.files));
+    el.ondragover = e => { e.preventDefault(); el.classList.add('drag'); };
+    el.ondragleave = e => { if (!el.contains(e.relatedTarget)) el.classList.remove('drag'); };
+    el.ondrop = e => { e.preventDefault(); e.stopPropagation(); el.classList.remove('drag'); document.body.classList.remove('dragging-files'); add(role, e.dataTransfer.files); };
+  });
+  root.querySelectorAll('[data-rm]').forEach(b => { b.onclick = e => { e.preventDefault(); e.stopPropagation(); remove(b.dataset.rm); }; });
+  root.querySelector('[data-show-style]')?.addEventListener('click', () => { state.showStyle = true; root === $('#pickers') ? renderPickers() : (state.sig.tab = null, renderTabBody(state.job)); });
+}
+
+/** Where a pasted / loosely dropped image goes: model first, then product, then style. */
+function autoRole(counts) {
+  if (!counts.model) return 'model';
+  if ((counts.product || 0) < ROLES.product.max) return 'product';
+  return 'style';
+}
+
+function addPending(role, files) {
+  const ok = [...files].filter(f => /^image\/(jpeg|png|webp)$/.test(f.type));
+  if (ok.length < [...files].length) toast('只支持 JPG / PNG / WebP 图片', true);
+  for (const f of ok) {
+    if (ROLES[role].max === 1) { state.pending[role].forEach(x => URL.revokeObjectURL(x.url)); state.pending[role] = []; }
+    if (state.pending[role].length >= ROLES[role].max) { toast(`${ROLES[role].label}最多 ${ROLES[role].max} 张`, true); break; }
+    f.url = URL.createObjectURL(f);
+    state.pending[role].push(f);
+  }
+  if (role === 'style' && ok.length) state.showStyle = true;
+  renderPickers();
+}
+
 function renderPickers() {
   const box = $('#pickers');
   if (!box) return;
   const refs = refMap(Object.entries(state.pending).flatMap(([role, list]) => list.map((f, i) => ({ role, file: `${role}:${i}` }))));
-  const tokenOf = key => refs.find(r => r.file === key)?.token;
-  box.innerHTML = Object.entries(ROLES).map(([role, cfg]) => {
-    const list = state.pending[role];
-    return `<div class="picker" data-role="${role}">
-      <div class="picker-head"><b>${cfg.label}</b><small>${cfg.hint}</small></div>
-      <div class="thumbs">${list.map((f, i) => `<figure><img src="${f.url}" alt=""><figcaption>${R(tokenOf(`${role}:${i}`))}</figcaption><button type="button" data-rm="${role}:${i}" aria-label="移除">×</button></figure>`).join('')}
-        ${list.length < cfg.max ? `<label class="add">${icon(I.upload)}<span>${list.length ? '再加' : '上传'}</span><input type="file" accept="image/jpeg,image/png,image/webp" ${cfg.max > 1 ? 'multiple' : ''} hidden></label>` : ''}</div>
-    </div>`;
-  }).join('');
-  box.querySelectorAll('.picker').forEach(el => {
-    const role = el.dataset.role;
-    const add = files => {
-      const ok = [...files].filter(f => /^image\/(jpeg|png|webp)$/.test(f.type));
-      if (ok.length < files.length) toast('只支持 JPG / PNG / WebP', true);
-      for (const f of ok) {
-        if (ROLES[role].max === 1) { state.pending[role].forEach(x => URL.revokeObjectURL(x.url)); state.pending[role] = []; }
-        if (state.pending[role].length >= ROLES[role].max) { toast(`${ROLES[role].label}最多 ${ROLES[role].max} 张`, true); break; }
-        f.url = URL.createObjectURL(f);
-        state.pending[role].push(f);
-      }
-      renderPickers();
-    };
-    el.querySelector('input')?.addEventListener('change', e => add(e.target.files));
-    el.ondragover = e => { e.preventDefault(); el.classList.add('drag'); };
-    el.ondragleave = () => el.classList.remove('drag');
-    el.ondrop = e => { e.preventDefault(); el.classList.remove('drag'); add(e.dataTransfer.files); };
-  });
-  box.querySelectorAll('[data-rm]').forEach(b => { b.onclick = () => { const [role, i] = b.dataset.rm.split(':'); URL.revokeObjectURL(state.pending[role][i].url); state.pending[role].splice(Number(i), 1); renderPickers(); }; });
+  box.innerHTML = Object.keys(ROLES).map(role => pickerBlock(role, state.pending[role].map((f, i) => ({ src: f.url, token: refs.find(r => r.file === `${role}:${i}`)?.token, rm: `${role}:${i}` })))).join('');
+  bindPickers(box, addPending, key => { const [role, i] = key.split(':'); URL.revokeObjectURL(state.pending[role][i].url); state.pending[role].splice(Number(i), 1); renderPickers(); });
 }
 
 /** Uploads the composer's images to a deferred job, then starts it (always starts, even if an upload fails). */
@@ -451,7 +472,9 @@ function renderTabBody(job) {
     const a = d.analysis;
     const refs = d.refs || refMap(job.assets);
     const notes = (a.asset_notes || []).map(n => ({ ...n, ref: refs.find(r => r.token === n.token) })).filter(n => n.ref?.file);
-    body.innerHTML = `<div class="grid2">
+    const hasModel = job.assets.some(x => x.role === 'model');
+    body.innerHTML = `${!hasModel ? `<div class="next-step rise"><b>03</b><div><strong>下一步：换上你的模特</strong><p>拆解已完成。上传模特和衣服 / 商品图片，AI 会重新编译成用你的模特出镜的提示词。</p></div><button class="btn ink" data-goto="assets">去上传 ${icon(I.arrow)}</button></div>` : ''}
+    <div class="grid2">
       ${d.goal || a.goal_plan ? `<div class="panel goal rise"><h4>想要的效果 → 实现方案</h4>${d.goal ? `<blockquote>${esc(d.goal)}</blockquote>` : ''}<p>${esc(a.goal_plan || '')}</p></div>` : ''}
       ${notes.length ? `<div class="panel wide rise"><h4>素材解读 · AI 看到的与怎么用</h4><div class="asset-notes">${notes.map(n => `<div class="an"><img src="${file(job.id, n.ref.file)}" alt=""><div><b>${R(n.token)} · ${esc(n.ref.label)}</b><p>${esc(n.seen)}</p><p class="use">${esc(n.usage)}</p></div></div>`).join('')}</div></div>` : ''}
       <div class="panel hook rise"><h4>前三秒钩子</h4><p>${esc(a.hook)}</p></div>
@@ -496,6 +519,7 @@ function renderTabBody(job) {
         <a class="btn" href="/api/jobs/${job.id}/libtv.md?style=${state.refStyle}">${icon(I.down)}下载 .md</a>
         <button class="btn" id="goExport">${icon(I.folder)}素材包</button>
       </div>
+      <div class="next-step out"><b>04</b><div><strong>出成片：${d.segments.length} 段，逐段在 LibTV 生成后拼接</strong><p>① 生成素材包 → ② 每段上传对应参考片段（${R('@Video1')}）和 ${refs.filter(r => r.file).map(r => R(r.token)).join(' / ') || '模特与商品图'} → ③ 粘贴该段提示词生成 → ④ 按段序拼接成片</p></div><button class="btn ink" data-goto="assets">${icon(I.folder)}素材包</button></div>
       ${d.warnings?.length ? `<div class="warnbox">⚠ ${d.warnings.map(esc).join('；')}</div>` : ''}
       ${d.segments.map(s => `<article class="segment rise" style="--i:${s.index}">
         <div class="segment-head"><h3>第 ${s.index} 段<span>${tc(s.start)} – ${tc(s.end)} · ${s.duration}s · 镜头 ${s.shots.join('、')}</span></h3><button class="btn sm" data-seek="${s.start}">${icon(I.play)}预览原片</button></div>
@@ -571,15 +595,7 @@ function renderTabBody(job) {
   if (state.tab === 'assets') {
     const b = job.brief || {};
     const refs = refMap(job.assets);
-    const group = role => {
-      const cfg = ROLES[role];
-      const list = refs.filter(r => r.role === role && r.file);
-      return `<div class="picker" data-role="${role}">
-        <div class="picker-head"><b>${cfg.label}</b><small>${cfg.hint}</small></div>
-        <div class="thumbs">${list.map(r => `<figure><img src="${file(job.id, r.file)}" alt=""><figcaption>${R(r.token)}</figcaption><button type="button" data-rmfile="${esc(r.file)}" aria-label="移除">×</button></figure>`).join('')}
-          ${list.length < cfg.max || cfg.max === 1 ? `<label class="add">${icon(I.upload)}<span>${list.length && cfg.max === 1 ? '替换' : list.length ? '再加' : '上传'}</span><input type="file" accept="image/jpeg,image/png,image/webp" ${cfg.max > 1 ? 'multiple' : ''} hidden></label>` : ''}</div>
-      </div>`;
-    };
+    const group = role => pickerBlock(role, refs.filter(r => r.role === role && r.file).map(r => ({ src: file(job.id, r.file), token: r.token, rm: r.file })));
     body.innerHTML = `
       <div class="pickers big">${Object.keys(ROLES).map(group).join('')}</div>
       <form class="panel" id="briefForm">
@@ -599,15 +615,9 @@ function renderTabBody(job) {
         <div class="actions"><button class="btn primary" id="export" ${d ? '' : 'disabled'}>${icon(I.down)}生成素材包</button><button class="btn" id="open">${icon(I.folder)}打开文件夹</button></div>
         ${state.exportPath ? `<p class="path" style="margin-top:10px">已导出：${esc(state.exportPath)}</p>` : ''}
       </div>`;
-    body.querySelectorAll('.pickers.big .picker').forEach(el => {
-      const role = el.dataset.role;
-      const add = async files => { for (const f of [...files].slice(0, ROLES[role].max)) await uploadAsset(job, role, f); };
-      el.querySelector('input')?.addEventListener('change', e => add(e.target.files));
-      el.ondragover = e => { e.preventDefault(); el.classList.add('drag'); };
-      el.ondragleave = () => el.classList.remove('drag');
-      el.ondrop = e => { e.preventDefault(); el.classList.remove('drag'); add(e.dataTransfer.files); };
-    });
-    body.querySelectorAll('[data-rmfile]').forEach(btn => { btn.onclick = async e => { e.preventDefault(); e.stopPropagation(); job.assets = await api(`/api/jobs/${job.id}/assets/x?file=${encodeURIComponent(btn.dataset.rmfile)}`, { method: 'DELETE' }); state.sig.tab = null; renderTabBody(job); }; });
+    bindPickers(body.querySelector('.pickers.big'),
+      async (role, files) => { for (const f of [...files].slice(0, ROLES[role].max)) await uploadAsset(job, role, f); },
+      async rm => { job.assets = await api(`/api/jobs/${job.id}/assets/x?file=${encodeURIComponent(rm)}`, { method: 'DELETE' }); state.sig.tab = null; renderTabBody(job); });
     $('#briefForm').onsubmit = async e => {
       e.preventDefault();
       try { await api(`/api/jobs/${job.id}/brief`, { method: 'POST', json: Object.fromEntries(new FormData(e.target)) }); state.tab = 'libtv'; await rerun('director'); toast('已提交，AI 导演重新编译中'); }
@@ -621,6 +631,7 @@ function renderTabBody(job) {
     };
     $('#open').onclick = () => api(`/api/jobs/${job.id}/open`, { method: 'POST' }).catch(err => toast(err.message, true));
   }
+  body.querySelectorAll('[data-goto]').forEach(b => { b.onclick = () => switchTab(job, b.dataset.goto); });
   body.querySelectorAll('[data-copy]').forEach(btn => {
     btn.onclick = e => {
       e.stopPropagation();
@@ -693,6 +704,32 @@ async function loadJobs() {
 }
 
 window.addEventListener('hashchange', route);
+let dragDepth = 0;
+const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
+window.addEventListener('dragenter', e => { if (hasFiles(e)) { dragDepth++; document.body.classList.add('dragging-files'); } });
+window.addEventListener('dragleave', e => { if (hasFiles(e) && --dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragging-files'); } });
+window.addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault(); });
+window.addEventListener('drop', e => {
+  dragDepth = 0; document.body.classList.remove('dragging-files');
+  if (!hasFiles(e)) return;
+  e.preventDefault(); // dropped outside a picker: never let the browser navigate to the file
+  if (e.target.closest?.('.picker')) return;
+  const imgs = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
+  if (imgs.length && $('#pickers')) { for (const f of imgs) addPending(autoRole(Object.fromEntries(Object.entries(state.pending).map(([k, v]) => [k, v.length]))), [f]); toast('已放入素材，可拖到别的框里调整'); }
+});
+document.addEventListener('paste', async e => {
+  const imgs = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/'));
+  if (!imgs.length) return;
+  if ($('#pickers')) {
+    e.preventDefault();
+    for (const f of imgs) addPending(autoRole(Object.fromEntries(Object.entries(state.pending).map(([k, v]) => [k, v.length]))), [f]);
+    toast('已粘贴到素材');
+  } else if (state.job && state.tab === 'assets') {
+    e.preventDefault();
+    const counts = state.job.assets.reduce((m, a) => ({ ...m, [a.role]: (m[a.role] || 0) + 1 }), {});
+    await uploadAsset(state.job, autoRole(counts), imgs[0]);
+  }
+});
 window.addEventListener('resize', () => requestAnimationFrame(moveIndicator));
 document.fonts?.ready.then(moveIndicator);
 api('/api/health').then(h => { state.health = h; renderEngines(); }).catch(() => {});

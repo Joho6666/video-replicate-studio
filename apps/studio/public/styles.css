@@ -556,3 +556,41 @@ html { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 .mapping { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
 @media (max-width: 860px) { .pickers { grid-template-columns: 1fr; } }
 .brief .wide { grid-column: 1 / -1; }
+
+/* flow steps (hero) */
+.flow { list-style: none; display: inline-flex; gap: 6px; padding: 5px; margin: 0; border-radius: 999px; background: rgba(255, 255, 255, .7); border: 1px solid rgba(255, 255, 255, .85); backdrop-filter: blur(10px); flex-wrap: wrap; justify-content: center; }
+[data-theme="dark"] .flow { background: rgba(255, 255, 255, .05); border-color: rgba(255, 255, 255, .12); }
+.flow li { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 12px 0 6px; border-radius: 999px; font-size: 12.5px; color: #2b2822; }
+[data-theme="dark"] .flow li { color: #ddd; }
+.flow li b { font: 700 10.5px var(--mono); width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, .06); }
+[data-theme="dark"] .flow li b { background: rgba(255, 255, 255, .08); }
+.flow li:nth-child(3) { background: var(--accent); color: #fff; }
+.flow li:nth-child(3) b { background: rgba(255, 255, 255, .22); }
+.flow li + li::before { content: none; }
+
+/* pickers v2: lead model, big drop zones, optional style */
+.pickers { grid-template-columns: 1fr 1fr; }
+.picker.lead { border-color: var(--accent-line); background: color-mix(in srgb, var(--accent) 5%, var(--surface-2)); }
+.picker-head b em, .picker-more em { font-style: normal; font-size: 10.5px; font-weight: 600; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--surface-3); color: var(--muted); }
+.picker.optional, .picker-more { grid-column: 1 / -1; }
+.picker-more { display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap; text-align: left; padding: 10px 14px; border-radius: 14px; border: 1.5px dashed var(--line-2); background: transparent; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-2); transition: border-color .2s, color .2s; }
+.picker-more small { font-weight: 400; color: var(--muted); margin-left: 8px; }
+.picker-more:hover { border-color: var(--accent-line); color: var(--accent); }
+.dropzone { display: grid; place-items: center; align-content: center; gap: 4px; min-height: 108px; border-radius: 12px; cursor: pointer; text-align: center; color: var(--text-2); background: var(--surface-solid); border: 1px solid var(--line); transition: transform .25s var(--ease), border-color .2s, color .2s, background .2s; }
+.dropzone .ic { width: 22px; height: 22px; color: var(--accent); }
+.dropzone span { font-weight: 600; font-size: 13.5px; }
+.dropzone small { font-size: 11px; color: var(--muted); }
+.dropzone:hover { border-color: var(--accent-line); color: var(--text); }
+.pickers.big .dropzone { min-height: 150px; }
+.picker.drag .dropzone, .picker.drag { background: var(--accent-soft); border-color: var(--accent); }
+body.dragging-files .picker { border-color: var(--accent); animation: pickPulse 1.1s ease-in-out infinite; }
+body.dragging-files .picker .dropzone { transform: scale(1.02); }
+body.dragging-files .picker-more { border-color: var(--accent); color: var(--accent); }
+@keyframes pickPulse { 50% { box-shadow: 0 0 0 5px var(--accent-soft); } }
+
+/* next-step banners */
+.next-step { display: flex; align-items: center; gap: 16px; padding: 16px 18px; margin-bottom: 14px; border-radius: var(--r-l); border: 1px solid var(--accent-line); background: linear-gradient(110deg, var(--accent-soft), var(--surface) 70%); }
+.next-step > b { font: 400 34px/1 var(--latin); letter-spacing: -.05em; color: var(--accent); }
+.next-step > div { flex: 1; min-width: 0; }
+.next-step strong { font-size: 15px; }
+.next-step p { margin: 3px 0 0; font-size: 13px; color: var(--text-2); }
