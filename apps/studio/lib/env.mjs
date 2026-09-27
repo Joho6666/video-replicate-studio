@@ -21,7 +21,9 @@ function parseEnvFile(file) {
 /** process.env > apps/studio/.env.local > AVD_ENV_FILE (only non-empty values count). */
 export function loadEnv() {
   const local = parseEnvFile(path.join(STUDIO_DIR, '.env.local'));
-  const linked = parseEnvFile(process.env.AVD_ENV_FILE || local.AVD_ENV_FILE);
+  const linkedPath = process.env.AVD_ENV_FILE || local.AVD_ENV_FILE;
+  // Relative paths are resolved from apps/studio so an unzipped package works anywhere.
+  const linked = parseEnvFile(linkedPath && path.resolve(STUDIO_DIR, linkedPath));
   const env = {};
   for (const source of [linked, local, process.env]) {
     for (const [k, v] of Object.entries(source)) if (v !== undefined && v !== '') env[k] = v;
@@ -40,9 +42,13 @@ function which(names) {
   return null;
 }
 
+const bundled = name => [path.join(REPO_DIR, 'tools', 'ffmpeg', `${name}.exe`), path.join(REPO_DIR, 'tools', 'ffmpeg', name)].find(existsSync) || null;
+const configured = p => (p ? (path.isAbsolute(p) ? p : path.resolve(STUDIO_DIR, p)) : null);
+const usable = p => (p && existsSync(p) ? p : null);
+
 export const tools = {
-  ffmpeg: env.FFMPEG_PATH || which(['ffmpeg.exe', 'ffmpeg']),
-  ffprobe: env.FFPROBE_PATH || which(['ffprobe.exe', 'ffprobe']),
+  ffmpeg: usable(configured(env.FFMPEG_PATH)) || bundled('ffmpeg') || which(['ffmpeg.exe', 'ffmpeg']),
+  ffprobe: usable(configured(env.FFPROBE_PATH)) || bundled('ffprobe') || which(['ffprobe.exe', 'ffprobe']),
   crawlerPython: [path.join(CRAWLER_DIR, '.venv', 'Scripts', 'python.exe'), path.join(CRAWLER_DIR, '.venv', 'bin', 'python')].find(existsSync) || null,
 };
 

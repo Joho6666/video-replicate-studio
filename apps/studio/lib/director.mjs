@@ -92,7 +92,8 @@ export function checkDirector(raw, shots, segments) {
     if (!p.includes('@Video1')) hard.push(`segments[${i}].prompt_en must reference @Video1`);
     if (CJK.test(p)) hard.push(`segments[${i}].prompt_en must be English only (no Chinese characters)`);
     const beats = p.split(/\r?\n/).map(line => ({ line, m: line.match(BEAT) })).filter(x => x.m);
-    if (beats.length < 2) { hard.push(`segments[${i}].prompt_en needs one "0.0-2.0s: ..." line per beat`); return; }
+    // A short single-shot segment legitimately has one beat; require at least one timed line.
+    if (beats.length < 1) { hard.push(`segments[${i}].prompt_en needs "0.0-${seg.duration}s: ..." timed beat lines (one line per beat, even if there is only one)`); return; }
     let prev = 0;
     beats.forEach(({ m }, j) => {
       const [start, end] = [Number(m[1]), Number(m[2])];

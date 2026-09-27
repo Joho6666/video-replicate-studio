@@ -9,3 +9,5 @@ apps/media-crawler/data/
 apps/media-crawler/browser_data/
 apps/media-crawler/*_user_data_dir/
 apps/media-crawler/.env
+.cache/
+*.zip
