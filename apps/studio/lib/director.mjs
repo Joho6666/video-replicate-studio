@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { config } from './env.mjs';
+import { refMap } from './refs.mjs';
 
 export const SEGMENT_MAX_SEC = 15; // Seedance 2.0 / LibTV generates at most 15s per run
 export const DIRECTOR_VERSION = 'studio-director-0.2 (ai-commercial-video-director · RECREATE)';
@@ -22,8 +23,8 @@ export function planSegments(shots, maxSec = SEGMENT_MAX_SEC) {
 // Rules distilled from skills/ai-commercial-video-director (prompt-compiler, human-performance,
 // motion-continuity) and the workbench director-0.1.1 replacement rules.
 const SYSTEM = `You are the AI Commercial Video Director working in RECREATE mode for an e-commerce team.
-Input: one reference video, split into shots with one keyframe per shot (with timecodes), its caption, generation segments (each ≤${SEGMENT_MAX_SEC}s), and optionally a target model image, target product image and user product notes.
-Goal: explain in Chinese why the reference works, then compile English Seedance 2.0 prompts (used inside LibTV) that recreate its structure with the TARGET model and TARGET product.
+Input: one reference video, split into shots with one keyframe per shot (with timecodes), its caption, generation segments (each ≤${SEGMENT_MAX_SEC}s), the user's desired effect, and optionally numbered images: a target model, target garment/product (possibly several angles) and style reference images, plus user product notes.
+Goal: explain in Chinese why the reference works and how to reach the user's desired effect, then compile English Seedance 2.0 prompts (used inside LibTV) that recreate its structure with the TARGET model and TARGET product.
 
 EVIDENCE
 - Describe only what the keyframes show. Anything not visible is unknown; never invent focal lengths, camera heights or exact timing beyond the given timecodes.
@@ -32,7 +33,9 @@ EVIDENCE
 
 REFERENCE ROLES (fixed tokens, use exactly as written)
 - @Video1 = the reference clip of this segment. Use it ONLY for camera path, shot order, composition, action timing and pacing.
-- @Image1 = target model (identity, face, hair, body). @Image2 = target product.
+- @Image1 = target model (identity, face, hair, body). @Image2 = target garment/product; further product images are extra angles of the SAME item and must be cited where their detail matters (back, texture, label side).
+- Style reference images (listed in the input with their @ImageN token) supply ONLY lighting, colour grade, scene mood, set dressing or wardrobe styling direction. Never copy their people, faces, logos or products. Cite them in the global line, e.g. "match the soft window light and muted beige palette of @Image4".
+- The user's desired effect overrides the reference's look where they conflict, but the reference still drives camera path, shot order and pacing.
 - Never keep the original person, original product, logos or on-screen text. Replacement holds from the first frame to the last, including after cuts, profile/back views, occlusion and mirror reflections.
 - Garment products are WORN by @Image1 the whole time (the product takes priority over the model image's own outerwear). Handheld products state how they are held and shown.
 
@@ -56,7 +59,9 @@ const CONTRACT = `Return JSON exactly in this shape:
     "visual_style": "中文：画面风格、色调、质感",
     "rhythm": "中文：剪辑节奏与时长分配",
     "audio_guess": "中文：从画面推测的声音/口播形式，无法确认写 不确定",
-    "why_it_works": ["中文爆点 1", "中文爆点 2", "中文爆点 3"]
+    "why_it_works": ["中文爆点 1", "中文爆点 2", "中文爆点 3"],
+    "goal_plan": "中文：用户想要的效果如何落到这条片子上（保留什么、改什么、哪几段是重点）；用户没填写就根据素材给出建议",
+    "asset_notes": [{ "token": "@ImageN", "seen": "中文：图里能看到的关键外观（颜色、版型、材质观感、构图、光线）", "usage": "中文：在复刻中怎么用、注意什么风险" }]
   },
   "shots": [
     { "index": 1, "shot_size": "中文景别", "camera": "中文运镜", "subject": "中文主体", "action": "中文动作", "scene": "中文场景", "lighting": "中文光线", "on_screen_text": "中文画面文字，没有写 无", "transition": "中文转场", "prompt_en": "English single-shot prompt with @Image1/@Image2 and performance timing", "replace_note": "中文：复刻时替换/保留什么" }
@@ -65,7 +70,7 @@ const CONTRACT = `Return JSON exactly in this shape:
     { "index": 1, "note_zh": "中文一句话：这一段拍什么", "prompt_en": "global line\\n0.0-2.5s: ...\\n2.5-5.0s: ...", "negative_en": "..." }
   ]
 }
-shots must match the input shots one-to-one (same count and index). segments must match the input segments one-to-one.`;
+shots must match the input shots one-to-one (same count and index). segments must match the input segments one-to-one. asset_notes has one item per uploaded image (empty array when none).`;
 
 const b64 = async file => `data:image/jpeg;base64,${(await readFile(file)).toString('base64')}`;
 const tc = s => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
@@ -73,7 +78,7 @@ const CJK = /[㐀-鿿]/;
 const BEAT = /^\s*(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*s\s*:/;
 
 /** Hard issues trigger one repair round; soft issues are shown to the user. */
-export function checkDirector(raw, shots, segments) {
+export function checkDirector(raw, shots, segments, refs = []) {
   const hard = [], soft = [];
   if (!raw || typeof raw !== 'object') return { hard: ['top level is not a JSON object'], soft };
   const a = raw.analysis;
@@ -102,10 +107,14 @@ export function checkDirector(raw, shots, segments) {
       prev = end;
     });
     if (Math.abs(prev - seg.duration) > 0.35) hard.push(`segments[${i}] beats end at ${prev}s but the segment lasts ${seg.duration}s`);
-    const unbound = beats.filter(({ line }) => !/@Image[12]/.test(line)).length;
+    const unbound = beats.filter(({ line }) => !/@Image\d+/.test(line)).length;
     if (unbound) soft.push(`第 ${i + 1} 段有 ${unbound} 个时间段没有点名 @Image1/@Image2`);
     if (typeof s?.negative_en !== 'string' || !s.negative_en.trim()) soft.push(`第 ${i + 1} 段缺少负面约束`);
   });
+  const all = raw.segments.map(s => String(s?.prompt_en || '')).join('\n');
+  for (const r of refs.filter(r => r.file && r.role !== 'model' && r.token !== '@Image2')) {
+    if (!all.includes(r.token)) soft.push(`提示词没有用到 ${r.token}（${r.label}）`);
+  }
   return { hard, soft };
 }
 
@@ -134,6 +143,7 @@ export async function runDirector({ job, root, onLog }) {
   if (!config.deepseek.key) throw new Error('DeepSeek API Key 未配置（apps/studio/.env.local 的 DEEPSEEK_API_KEY）');
   const { shots, meta, media, brief } = job;
   const segments = planSegments(shots);
+  const refs = refMap(job.assets);
   const hasModel = job.assets.some(a => a.role === 'model') || Boolean(brief.model);
   const hasProduct = job.assets.some(a => a.role === 'product') || Boolean(brief.product);
   const content = [{
@@ -147,15 +157,18 @@ export async function runDirector({ job, root, onLog }) {
       brief.notes ? `Product notes from the user (the ONLY allowed source of product claims): ${brief.notes}` : 'Product notes: none — make no product claims.',
       `Target model (@Image1): ${brief.model || (hasModel ? 'see image' : 'not provided yet — still write @Image1 for any person on screen')}`,
       brief.style ? `Extra style request: ${brief.style}` : '',
+      `User's desired effect: ${brief.goal || '(not given — propose one in goal_plan based on the reference and images)'}`,
+      `Uploaded images: ${refs.filter(r => r.file).map(r => `${r.token}=${r.label}`).join(', ') || 'none'}`,
     ].filter(Boolean).join('\n'),
   }];
   for (const shot of shots) {
     content.push({ type: 'text', text: `Shot ${shot.index} | ${tc(shot.start)}-${tc(shot.end)} (${shot.duration}s, ${shot.cut === 'hard' ? 'new shot after a hard cut' : 'same continuous shot as the previous keyframe'})` });
     content.push({ type: 'image_url', image_url: { url: await b64(path.join(root, shot.keyframe)), detail: 'low' } });
   }
-  for (const asset of job.assets || []) {
-    content.push({ type: 'text', text: `${asset.role === 'model' ? '@Image1 target model' : '@Image2 target product'} — describe only what is visible.` });
-    content.push({ type: 'image_url', image_url: { url: await b64(path.join(root, asset.file)), detail: 'low' } });
+  const ROLE_TEXT = { model: 'target model — identity, face, hair, body', product: 'target garment/product — must appear exactly like this', style: 'STYLE REFERENCE ONLY — lighting, colour, mood, scene; do not copy its people or products' };
+  for (const r of refs.filter(r => r.file)) {
+    content.push({ type: 'text', text: `${r.token} = ${ROLE_TEXT[r.role]}. Describe only what is visible.` });
+    content.push({ type: 'image_url', image_url: { url: await b64(path.join(root, r.file)), detail: r.role === 'style' ? 'low' : 'auto' } });
   }
   content.push({ type: 'text', text: CONTRACT });
 
@@ -167,19 +180,21 @@ export async function runDirector({ job, root, onLog }) {
   // The model reliably forgets the @Video1 role line; adding it is deterministic, so don't pay for a re-ask.
   const ensureVideoRef = p => { for (const s of p?.segments || []) if (typeof s?.prompt_en === 'string' && !s.prompt_en.includes('@Video1')) s.prompt_en = `Follow @Video1 only for camera path, shot order, composition and pacing.
 ${s.prompt_en}`; return p; };
-  try { parsed = ensureVideoRef(JSON.parse(reply.text)); check = checkDirector(parsed, shots, segments); } catch { check = { hard: ['response is not valid JSON'], soft: [] }; }
+  try { parsed = ensureVideoRef(JSON.parse(reply.text)); check = checkDirector(parsed, shots, segments, refs); } catch { check = { hard: ['response is not valid JSON'], soft: [] }; }
   let repaired = false;
   if (check.hard.length) {
     onLog(`提示词未过格式检查（${check.hard.slice(0, 2).join('；')}），带着问题清单重出一次`, 'warn');
     messages.push({ role: 'assistant', content: reply.text }, { role: 'user', content: `The JSON above fails these checks:\n- ${check.hard.slice(0, 20).join('\n- ')}\nReturn the complete corrected JSON. Fix only these issues and keep everything else.` });
     reply = await chat(messages);
     usage = addUsage(usage, reply.usage);
-    try { parsed = ensureVideoRef(JSON.parse(reply.text)); check = checkDirector(parsed, shots, segments); } catch { check = { hard: ['response is not valid JSON'], soft: [] }; }
+    try { parsed = ensureVideoRef(JSON.parse(reply.text)); check = checkDirector(parsed, shots, segments, refs); } catch { check = { hard: ['response is not valid JSON'], soft: [] }; }
     if (check.hard.length) throw new Error(`DeepSeek 两次输出都未通过检查：${check.hard.slice(0, 3).join('；')}`);
     repaired = true;
   }
   return {
     version: DIRECTOR_VERSION,
+    refs,
+    goal: brief.goal || '',
     analysis: clean(parsed.analysis),
     shots: parsed.shots.map(clean),
     segments: segments.map((s, i) => ({ ...s, note_zh: stripLabel(parsed.segments[i].note_zh || ''), prompt_en: parsed.segments[i].prompt_en.trim(), negative_en: (parsed.segments[i].negative_en || '').trim() })),

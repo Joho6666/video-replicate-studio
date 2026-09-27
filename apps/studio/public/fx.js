@@ -27,9 +27,11 @@ function hero(root) {
       l.style.transform = `translate(${(-x * d).toFixed(2)}px, ${(-y * d * 0.6).toFixed(2)}px)`;
     }
     const sp = Math.min(window.scrollY / window.innerHeight, 1);
-    if (inner) { inner.style.transform = `translateY(${sp * 90}px) scale(${1 - sp * 0.06})`; inner.style.opacity = String(1 - sp * 1.2); }
+    // Keep the composer fully usable while it is on screen; fade only once most of the hero is gone.
+    const fade = Math.min(Math.max((sp - 0.55) / 0.4, 0), 1);
+    if (inner) { inner.style.transform = `translateY(${sp * 36}px) scale(${1 - fade * 0.04})`; inner.style.opacity = String(1 - fade); }
     if (scene) scene.style.transform = `scale(${1.08 + sp * 0.08})`;
-    heroEl.style.setProperty('--dim', String(sp * 0.55));
+    heroEl.style.setProperty('--dim', String(fade * 0.5));
     raf = requestAnimationFrame(tick);
   };
   on(heroEl, 'pointermove', e => {

@@ -6,7 +6,7 @@ const app = $('#app');
 
 const state = {
   health: null, jobs: [], job: null, tab: 'overview', poll: null, sig: {}, exportPath: null,
-  filter: 'all', refStyle: localStorage.getItem('studio-ref') || 'en', copyTone: 'seed', copyTarget: 'douyin', copyBusy: false,
+  pending: { model: [], product: [], style: [] }, filter: 'all', refStyle: localStorage.getItem('studio-ref') || 'en', copyTone: 'seed', copyTarget: 'douyin', copyBusy: false,
 };
 
 /* ───────── utils ───────── */
@@ -22,18 +22,35 @@ const I = {
 };
 const PLATFORMS = { douyin: ['抖音', '#ff3d7f'], bilibili: ['B站', '#27a7e7'], tiktok: ['TikTok', '#1db954'], instagram: ['Instagram', '#f08c1a'], local: ['本地', '#7a5cff'] };
 const STAGES = [['fetch', '抓取原片'], ['probe', '解析媒体'], ['shots', '镜头切分'], ['director', '导演拆解']];
-const REF = {
-  en: { '@Video1': '@Video1', '@Image1': '@Image1', '@Image2': '@Image2' },
-  zh: { '@Video1': '@视频1', '@Image1': '@图片1', '@Image2': '@图片2' },
-  plain: { '@Video1': 'Video 1', '@Image1': 'Image 1', '@Image2': 'Image 2' },
+const REF_FMT = {
+  en: (k, n) => `@${k}${n}`,
+  zh: (k, n) => `@${k === 'Video' ? '视频' : '图片'}${n}`,
+  plain: (k, n) => `${k} ${n}`,
 };
-const R = k => REF[state.refStyle][k];
-const refText = t => String(t || '').replace(/@(Video1|Image1|Image2)/g, m => R(m));
+const REF_LABEL = { en: '@Image1', zh: '@图片1', plain: 'Image 1' };
+const REF_HL = { en: /@(?:Video|Image)\d+/g, zh: /@(?:视频|图片)\d+/g, plain: /\b(?:Video|Image) \d+/g };
+const R = token => { const m = String(token).match(/^@(Video|Image)(\d+)$/); return m ? REF_FMT[state.refStyle](m[1], m[2]) : token; };
+const refText = t => String(t || '').replace(/@(?:Video|Image)\d+/g, R);
+
+/* image roles — mirrors lib/refs.mjs */
+const ROLES = {
+  model: { label: '模特', max: 1, hint: '1 张 · 正脸清晰、全身更好' },
+  product: { label: '衣服 / 商品', max: 3, hint: '最多 3 张 · 正面、背面、细节' },
+  style: { label: '效果参考', max: 3, hint: '最多 3 张 · 想要的色调、场景、氛围' },
+};
+function refMap(assets = []) {
+  const of = r => assets.filter(a => a.role === r);
+  const [model] = of('model'); const [main, ...angles] = of('product');
+  const refs = [{ token: '@Image1', role: 'model', file: model?.file || null, label: '替换模特' }, { token: '@Image2', role: 'product', file: main?.file || null, label: '替换衣服 / 商品' }];
+  let n = 3;
+  for (const a of angles) refs.push({ token: `@Image${n++}`, role: 'product', file: a.file, label: '衣服 / 商品补充角度' });
+  for (const a of of('style')) refs.push({ token: `@Image${n++}`, role: 'style', file: a.file, label: '效果参考' });
+  return refs;
+}
 
 /** Escaped, ref-styled prompt with each "0.0-2.0s:" beat on its own hanging-indent line. */
 function promptHtml(text) {
-  const tokens = Object.values(REF[state.refStyle]).map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const hl = s => s.replace(new RegExp(`(${tokens.map(esc).join('|')})`, 'g'), '<span class="hl">$1</span>');
+  const hl = s => s.replace(REF_HL[state.refStyle], m => `<span class="hl">${m}</span>`);
   return refText(text).split(/\r?\n/).filter(l => l.trim()).map(line => {
     const m = line.match(/^\s*(\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?\s*s)\s*:\s*(.*)$/);
     return m ? `<span class="beat"><i>${esc(m[1].replace(/\s/g, ''))}</i>${hl(esc(m[2]))}</span>` : `<span>${hl(esc(line))}</span>`;
@@ -112,19 +129,23 @@ function renderHome({ focus = false, toLibrary = false } = {}) {
       <span class="meta-line rise"><i></i><span>v0.3</span><span>抖音 · B站 · TikTok · Instagram</span><span>约 60 秒出结果</span></span>
       <h1><span class="ln"><span style="--l:0">复刻爆款，</span></span><span class="ln"><span style="--l:1">从一条<em>链接</em>开始。</span></span></h1>
       <p class="sub rise" style="--i:4">贴一条链接，大约一分钟后拿到分镜、钩子拆解，<br>和能直接贴进 LibTV 的英文提示词。</p>
-      <form class="search rise" style="--i:5" id="slate">
-        <input id="link" autocomplete="off" placeholder="粘贴抖音 / B站 / TikTok / Instagram 链接…">
-        <span class="detected" id="detected"></span>
-        <button class="btn ink magnetic" data-strength=".18" id="go" type="submit">开始拆解 ${icon(I.arrow)}</button>
+      <form class="composer rise" style="--i:5" id="slate">
+        <div class="search">
+          <input id="link" autocomplete="off" placeholder="粘贴抖音 / B站 / TikTok / Instagram 爆款链接…">
+          <span class="detected" id="detected"></span>
+          <button class="btn ink magnetic" data-strength=".18" id="go" type="submit">开始分析 ${icon(I.arrow)}</button>
+        </div>
+        <div class="brief open" id="brief">
+          <div class="brief-head"><span class="idx">复刻设置</span><small>都可以留空，之后在「素材与导出」里再补</small></div>
+          <div class="field wide"><label>想要的效果</label><textarea name="goal" rows="2" placeholder="例：保留原片的节奏和运镜，换成我的模特穿米色羽绒服，画面更明亮干净，适合冬季上新"></textarea></div>
+          <div class="pickers wide" id="pickers"></div>
+          <div class="field"><label>商品名称</label><input name="product" placeholder="例：米色轻暖连帽羽绒服"></div>
+          <div class="field"><label>商品卖点（AI 只会使用这里写的）</label><input name="notes" placeholder="例：90% 白鸭绒、可机洗、三色可选"></div>
+        </div>
       </form>
-      <div class="brief" id="brief">
-        <div class="field"><label>替换商品</label><input name="product" placeholder="例：米色轻暖连帽羽绒服"></div>
-        <div class="field"><label>模特要求</label><input name="model" placeholder="例：25 岁亚洲女生，短发"></div>
-        <div class="field wide"><label>商品卖点（AI 只会使用这里写的卖点）</label><textarea name="notes" rows="2" placeholder="例：90% 白鸭绒、可机洗、三色可选"></textarea></div>
-      </div>
       <div class="hero-actions rise" style="--i:6">
-        <button class="btn text" id="toggleBrief" type="button">＋ 替换商品与模特</button>
-        <button class="btn text" id="upload" type="button">${icon(I.upload)}上传本地视频</button>
+        <button class="btn text" id="toggleBrief" type="button">收起复刻设置</button>
+        <button class="btn text" id="upload" type="button">${icon(I.upload)}用本地视频</button>
         <a class="btn text" href="#/guide">使用流程 →</a>
       </div>
       <input type="file" id="uploadInput" accept="video/*" hidden>
@@ -161,16 +182,19 @@ function renderHome({ focus = false, toLibrary = false } = {}) {
   link.addEventListener('input', sync);
   if (focus) setTimeout(() => link.focus(), 400);
   $('#scrollBtn').onclick = () => $('#about').scrollIntoView({ behavior: 'smooth' });
-  $('#toggleBrief').onclick = () => $('#brief').classList.toggle('open');
+  $('#toggleBrief').onclick = () => { const open = $('#brief').classList.toggle('open'); $('#toggleBrief').textContent = open ? '收起复刻设置' : '＋ 复刻设置（效果 / 模特 / 衣服 / 参考图）'; };
+  renderPickers();
   $('#upload').onclick = () => $('#uploadInput').click();
   $('#uploadInput').onchange = e => e.target.files[0] && uploadVideo(e.target.files[0]);
   $('#slate').onsubmit = async e => {
     e.preventDefault();
     if (!link.value.trim()) return toast('先粘贴一条视频链接', true);
-    const brief = Object.fromEntries([...$('#brief').querySelectorAll('input,textarea')].map(el => [el.name, el.value.trim()]));
     $('#go').disabled = true;
-    try { const job = await api('/api/jobs', { method: 'POST', json: { text: link.value, brief } }); location.hash = `#/job/${job.id}`; }
-    catch (err) { toast(err.message, true); $('#go').disabled = false; }
+    try {
+      const job = await api('/api/jobs', { method: 'POST', json: { text: link.value, brief: readBrief(), defer: pendingCount() > 0 } });
+      await sendPending(job.id);
+      location.hash = `#/job/${job.id}`;
+    } catch (err) { toast(err.message, true); $('#go').disabled = false; }
   };
   renderEngines();
   renderLibrary();
@@ -226,14 +250,70 @@ function renderGuide() {
     <div class="actions" style="justify-content:center;margin-top:34px"><a class="btn ink" href="#/new">开始第一条 ${icon(I.arrow)}</a></div>`;
 }
 
+const readBrief = () => Object.fromEntries([...document.querySelectorAll('#brief input, #brief textarea')].map(el => [el.name, el.value.trim()]));
+const pendingCount = () => Object.values(state.pending).reduce((n, l) => n + l.length, 0);
+
+function renderPickers() {
+  const box = $('#pickers');
+  if (!box) return;
+  const refs = refMap(Object.entries(state.pending).flatMap(([role, list]) => list.map((f, i) => ({ role, file: `${role}:${i}` }))));
+  const tokenOf = key => refs.find(r => r.file === key)?.token;
+  box.innerHTML = Object.entries(ROLES).map(([role, cfg]) => {
+    const list = state.pending[role];
+    return `<div class="picker" data-role="${role}">
+      <div class="picker-head"><b>${cfg.label}</b><small>${cfg.hint}</small></div>
+      <div class="thumbs">${list.map((f, i) => `<figure><img src="${f.url}" alt=""><figcaption>${R(tokenOf(`${role}:${i}`))}</figcaption><button type="button" data-rm="${role}:${i}" aria-label="移除">×</button></figure>`).join('')}
+        ${list.length < cfg.max ? `<label class="add">${icon(I.upload)}<span>${list.length ? '再加' : '上传'}</span><input type="file" accept="image/jpeg,image/png,image/webp" ${cfg.max > 1 ? 'multiple' : ''} hidden></label>` : ''}</div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('.picker').forEach(el => {
+    const role = el.dataset.role;
+    const add = files => {
+      const ok = [...files].filter(f => /^image\/(jpeg|png|webp)$/.test(f.type));
+      if (ok.length < files.length) toast('只支持 JPG / PNG / WebP', true);
+      for (const f of ok) {
+        if (ROLES[role].max === 1) { state.pending[role].forEach(x => URL.revokeObjectURL(x.url)); state.pending[role] = []; }
+        if (state.pending[role].length >= ROLES[role].max) { toast(`${ROLES[role].label}最多 ${ROLES[role].max} 张`, true); break; }
+        f.url = URL.createObjectURL(f);
+        state.pending[role].push(f);
+      }
+      renderPickers();
+    };
+    el.querySelector('input')?.addEventListener('change', e => add(e.target.files));
+    el.ondragover = e => { e.preventDefault(); el.classList.add('drag'); };
+    el.ondragleave = () => el.classList.remove('drag');
+    el.ondrop = e => { e.preventDefault(); el.classList.remove('drag'); add(e.dataTransfer.files); };
+  });
+  box.querySelectorAll('[data-rm]').forEach(b => { b.onclick = () => { const [role, i] = b.dataset.rm.split(':'); URL.revokeObjectURL(state.pending[role][i].url); state.pending[role].splice(Number(i), 1); renderPickers(); }; });
+}
+
+/** Uploads the composer's images to a deferred job, then starts it (always starts, even if an upload fails). */
+async function sendPending(jobId) {
+  const files = Object.entries(state.pending).flatMap(([role, list]) => list.map(f => [role, f]));
+  if (!files.length) return;
+  try {
+    for (const [i, [role, f]] of files.entries()) {
+      toast(`上传素材 ${i + 1}/${files.length}`);
+      await api(`/api/jobs/${jobId}/assets?role=${role}`, { method: 'POST', body: f, headers: { 'Content-Type': f.type } });
+    }
+  } catch (err) { toast(`素材上传失败：${err.message}（可稍后在「素材与导出」补传）`, true); }
+  finally {
+    await api(`/api/jobs/${jobId}/start`, { method: 'POST' });
+    Object.values(state.pending).flat().forEach(f => URL.revokeObjectURL(f.url));
+    state.pending = { model: [], product: [], style: [] };
+  }
+}
+
 function uploadVideo(f) {
   const xhr = new XMLHttpRequest();
-  xhr.open('POST', `/api/upload?name=${encodeURIComponent(f.name)}`);
+  const defer = pendingCount() > 0;
+  xhr.open('POST', `/api/upload?name=${encodeURIComponent(f.name)}&brief=${encodeURIComponent(JSON.stringify(readBrief()))}${defer ? '&defer=1' : ''}`);
   xhr.setRequestHeader('X-Studio', '1');
   xhr.upload.onprogress = e => e.lengthComputable && toast(`上传中 ${Math.round((e.loaded / e.total) * 100)}%`);
   xhr.onload = () => {
     if (xhr.status >= 300) return toast(JSON.parse(xhr.responseText || '{}').error || '上传失败', true);
-    location.hash = `#/job/${JSON.parse(xhr.responseText).id}`;
+    const id = JSON.parse(xhr.responseText).id;
+    (defer ? sendPending(id) : Promise.resolve()).finally(() => { location.hash = `#/job/${id}`; });
   };
   xhr.onerror = () => toast('上传失败', true);
   xhr.send(f);
@@ -369,7 +449,11 @@ function renderTabBody(job) {
   if (state.tab === 'overview') {
     if (!d) return void (body.innerHTML = waiting(job, '正在拆解爆点'));
     const a = d.analysis;
+    const refs = d.refs || refMap(job.assets);
+    const notes = (a.asset_notes || []).map(n => ({ ...n, ref: refs.find(r => r.token === n.token) })).filter(n => n.ref?.file);
     body.innerHTML = `<div class="grid2">
+      ${d.goal || a.goal_plan ? `<div class="panel goal rise"><h4>想要的效果 → 实现方案</h4>${d.goal ? `<blockquote>${esc(d.goal)}</blockquote>` : ''}<p>${esc(a.goal_plan || '')}</p></div>` : ''}
+      ${notes.length ? `<div class="panel wide rise"><h4>素材解读 · AI 看到的与怎么用</h4><div class="asset-notes">${notes.map(n => `<div class="an"><img src="${file(job.id, n.ref.file)}" alt=""><div><b>${R(n.token)} · ${esc(n.ref.label)}</b><p>${esc(n.seen)}</p><p class="use">${esc(n.usage)}</p></div></div>`).join('')}</div></div>` : ''}
       <div class="panel hook rise"><h4>前三秒钩子</h4><p>${esc(a.hook)}</p></div>
       <div class="panel rise" style="--i:1"><h4>叙事结构</h4><p>${esc(a.structure)}</p></div>
       <div class="panel rise" style="--i:2"><h4>剪辑节奏</h4><p>${esc(a.rhythm)}</p></div>
@@ -400,13 +484,13 @@ function renderTabBody(job) {
 
   if (state.tab === 'libtv') {
     if (!d) return void (body.innerHTML = waiting(job, '正在编译 LibTV 提示词'));
-    const model = job.assets.find(a => a.role === 'model'), product = job.assets.find(a => a.role === 'product');
-    const slot = (ref, label, asset) => `<div class="slot">${asset ? `<img src="${file(job.id, asset.file)}" alt="">` : '<span class="missing"></span>'}<span class="what"><b>${R(ref)}</b>${label} · ${asset ? '已上传' : '待上传'}</span></div>`;
+    const refs = d.refs || refMap(job.assets);
+    const slot = r => `<div class="slot">${r.file ? `<img src="${file(job.id, r.file)}" alt="">` : '<span class="missing"></span>'}<span class="what"><b>${R(r.token)}</b>${r.label} · ${r.file ? '已上传' : '待上传'}</span></div>`;
     const all = () => d.segments.map(s => `[Segment ${s.index} · ${tc(s.start)}-${tc(s.end)} · ${s.duration}s]\n${refText(s.prompt_en ?? s.prompt)}${s.negative_en ? `\n\nNegative: ${refText(s.negative_en)}` : ''}`).join('\n\n');
     body.innerHTML = `
       <div class="toolbar">
         <span class="lbl">引用格式</span>
-        <div class="seg-ctl" id="refCtl">${Object.keys(REF).map(k => `<button data-ref="${k}" class="${state.refStyle === k ? 'on' : ''}">${REF[k]['@Image1']}</button>`).join('')}</div>
+        <div class="seg-ctl" id="refCtl">${Object.keys(REF_LABEL).map(k => `<button data-ref="${k}" class="${state.refStyle === k ? 'on' : ''}">${REF_LABEL[k]}</button>`).join('')}</div>
         <span style="flex:1"></span>
         <button class="btn primary" id="copyAll">${icon(I.copy)}复制全部</button>
         <a class="btn" href="/api/jobs/${job.id}/libtv.md?style=${state.refStyle}">${icon(I.down)}下载 .md</a>
@@ -418,7 +502,7 @@ function renderTabBody(job) {
         ${s.note_zh ? `<div class="zh">${esc(s.note_zh)}</div>` : ''}
         <div class="mapping">
           <div class="slot"><img src="${file(job.id, job.shots.find(x => x.index === s.shots[0])?.keyframe)}" alt=""><span class="what"><b>${R('@Video1')}</b>参考片段 段${s.index}_${s.duration}s.mp4</span></div>
-          ${slot('@Image1', '替换模特', model)}${slot('@Image2', '替换商品', product)}
+          ${refs.map(slot).join('')}
         </div>
         <div class="body">
           <div class="prompt"><span class="en-label">PROMPT · EN</span>\n${promptHtml(s.prompt_en ?? s.prompt)}<button class="btn sm primary copy" data-copy="${esc(refText(s.prompt_en ?? s.prompt))}">${icon(I.copy)}复制</button></div>
@@ -486,18 +570,22 @@ function renderTabBody(job) {
 
   if (state.tab === 'assets') {
     const b = job.brief || {};
-    const drop = (role, ref, label) => {
-      const a = job.assets.find(x => x.role === role);
-      return `<label class="drop ${a ? 'has' : ''}" data-role="${role}">
-        ${a ? `<img src="${file(job.id, a.file)}" alt=""><button type="button" class="btn sm x" data-remove="${role}">移除</button>` : ''}
-        <span class="lbl"><b>${R(ref)}</b>${label}${a ? '' : '<br>拖入或点击上传 JPG / PNG / WebP'}</span>
-        <input type="file" accept="image/jpeg,image/png,image/webp" hidden></label>`;
+    const refs = refMap(job.assets);
+    const group = role => {
+      const cfg = ROLES[role];
+      const list = refs.filter(r => r.role === role && r.file);
+      return `<div class="picker" data-role="${role}">
+        <div class="picker-head"><b>${cfg.label}</b><small>${cfg.hint}</small></div>
+        <div class="thumbs">${list.map(r => `<figure><img src="${file(job.id, r.file)}" alt=""><figcaption>${R(r.token)}</figcaption><button type="button" data-rmfile="${esc(r.file)}" aria-label="移除">×</button></figure>`).join('')}
+          ${list.length < cfg.max || cfg.max === 1 ? `<label class="add">${icon(I.upload)}<span>${list.length && cfg.max === 1 ? '替换' : list.length ? '再加' : '上传'}</span><input type="file" accept="image/jpeg,image/png,image/webp" ${cfg.max > 1 ? 'multiple' : ''} hidden></label>` : ''}</div>
+      </div>`;
     };
     body.innerHTML = `
-      <div class="assets">${drop('model', '@Image1', '替换模特')}${drop('product', '@Image2', '替换商品')}</div>
+      <div class="pickers big">${Object.keys(ROLES).map(group).join('')}</div>
       <form class="panel" id="briefForm">
-        <h4>替换说明</h4>
+        <h4>复刻设置</h4>
         <div class="grid2" style="margin-top:10px">
+          <div class="field wide"><label>想要的效果</label><textarea name="goal" rows="2" placeholder="例：保留原片节奏，换成我的模特和羽绒服，画面更明亮">${esc(b.goal)}</textarea></div>
           <div class="field"><label>替换商品</label><input name="product" value="${esc(b.product)}" placeholder="例：米色轻暖连帽羽绒服"></div>
           <div class="field"><label>模特要求</label><input name="model" value="${esc(b.model)}" placeholder="例：25 岁亚洲女生"></div>
           <div class="field wide"><label>商品卖点（AI 只会使用这里写的卖点）</label><textarea name="notes" rows="3" placeholder="写清真实卖点，AI 不会编造没写的功效">${esc(b.notes)}</textarea></div>
@@ -511,15 +599,15 @@ function renderTabBody(job) {
         <div class="actions"><button class="btn primary" id="export" ${d ? '' : 'disabled'}>${icon(I.down)}生成素材包</button><button class="btn" id="open">${icon(I.folder)}打开文件夹</button></div>
         ${state.exportPath ? `<p class="path" style="margin-top:10px">已导出：${esc(state.exportPath)}</p>` : ''}
       </div>`;
-    body.querySelectorAll('.drop').forEach(zone => {
-      const input = zone.querySelector('input');
-      const role = zone.dataset.role;
-      input.onchange = () => input.files[0] && uploadAsset(job, role, input.files[0]);
-      zone.ondragover = e => { e.preventDefault(); zone.classList.add('drag'); };
-      zone.ondragleave = () => zone.classList.remove('drag');
-      zone.ondrop = e => { e.preventDefault(); zone.classList.remove('drag'); const f = e.dataTransfer.files[0]; if (f) uploadAsset(job, role, f); };
+    body.querySelectorAll('.pickers.big .picker').forEach(el => {
+      const role = el.dataset.role;
+      const add = async files => { for (const f of [...files].slice(0, ROLES[role].max)) await uploadAsset(job, role, f); };
+      el.querySelector('input')?.addEventListener('change', e => add(e.target.files));
+      el.ondragover = e => { e.preventDefault(); el.classList.add('drag'); };
+      el.ondragleave = () => el.classList.remove('drag');
+      el.ondrop = e => { e.preventDefault(); el.classList.remove('drag'); add(e.dataTransfer.files); };
     });
-    body.querySelectorAll('[data-remove]').forEach(btn => { btn.onclick = async e => { e.preventDefault(); e.stopPropagation(); job.assets = await api(`/api/jobs/${job.id}/assets/${btn.dataset.remove}`, { method: 'DELETE' }); state.sig.tab = null; renderTabBody(job); }; });
+    body.querySelectorAll('[data-rmfile]').forEach(btn => { btn.onclick = async e => { e.preventDefault(); e.stopPropagation(); job.assets = await api(`/api/jobs/${job.id}/assets/x?file=${encodeURIComponent(btn.dataset.rmfile)}`, { method: 'DELETE' }); state.sig.tab = null; renderTabBody(job); }; });
     $('#briefForm').onsubmit = async e => {
       e.preventDefault();
       try { await api(`/api/jobs/${job.id}/brief`, { method: 'POST', json: Object.fromEntries(new FormData(e.target)) }); state.tab = 'libtv'; await rerun('director'); toast('已提交，AI 导演重新编译中'); }
@@ -548,7 +636,8 @@ async function uploadAsset(job, role, f) {
   if (!/^image\/(jpeg|png|webp)$/.test(f.type)) return toast('只支持 JPG / PNG / WebP', true);
   try {
     job.assets = await api(`/api/jobs/${job.id}/assets?role=${role}`, { method: 'POST', body: f, headers: { 'Content-Type': f.type } });
-    toast(role === 'model' ? `模特图已上传（${R('@Image1')}）` : `商品图已上传（${R('@Image2')}）`);
+    const r = refMap(job.assets).filter(x => x.role === role && x.file).pop();
+    toast(`${ROLES[role].label}已上传（${R(r?.token || '')}），保存并重新编译后生效`);
     state.sig.tab = null; renderTabBody(job);
   } catch (err) { toast(err.message, true); }
 }

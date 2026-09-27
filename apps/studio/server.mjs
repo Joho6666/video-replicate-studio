@@ -7,6 +7,7 @@ import { pipeline } from 'node:stream/promises';
 import { config, env, STUDIO_DIR, tools } from './lib/env.mjs';
 import { copyMarkdown, runCopywriter, TARGETS, TONES } from './lib/copywriter.mjs';
 import { buildExport, libtvMarkdown, REF_STYLES } from './lib/export.mjs';
+import { ASSET_ROLES } from './lib/refs.mjs';
 import { createJob, jobDir, listJobs, loadJob, log, saveJob } from './lib/jobs.mjs';
 import { isRunning, runPipeline } from './lib/pipeline.mjs';
 import { detectPlatform, extractUrl, PLATFORMS } from './lib/sources.mjs';
@@ -69,6 +70,9 @@ async function health() {
   };
 }
 
+const BRIEF_KEYS = ['goal', 'product', 'notes', 'model', 'style'];
+const cleanBrief = b => Object.fromEntries(BRIEF_KEYS.map(k => [k, String(b?.[k] || '').trim().slice(0, 1500)]));
+
 const ALLOWED_IMAGE = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
 
 async function route(req, res) {
@@ -88,15 +92,17 @@ async function route(req, res) {
         if (!link) return send(res, 400, { error: '没有识别到链接，请粘贴分享文案或视频地址' });
         const platform = detectPlatform(link);
         if (!platform) return send(res, 400, { error: '暂只支持 抖音 / B站 / TikTok / Instagram 链接' });
-        const job = await createJob({ source: { platform, url: link, input: String(body.text).slice(0, 1000) }, brief: body.brief });
-        runPipeline(job).catch(() => {});
+        const job = await createJob({ source: { platform, url: link, input: String(body.text).slice(0, 1000) }, brief: cleanBrief(body.brief) });
+        if (body.defer) { job.status = 'draft'; await saveJob(job); } else runPipeline(job).catch(() => {});
         return send(res, 201, summary(job));
       }
     }
 
     if (parts[1] === 'upload' && req.method === 'POST') {
       const name = (url.searchParams.get('name') || 'upload.mp4').slice(0, 120);
-      const job = await createJob({ source: { platform: 'local', url: null, input: name } });
+      let brief = {};
+      try { brief = cleanBrief(JSON.parse(url.searchParams.get('brief') || '{}')); } catch { /* ignore */ }
+      const job = await createJob({ source: { platform: 'local', url: null, input: name }, brief });
       const root = jobDir(job.id);
       await mkdir(path.join(root, 'source'), { recursive: true });
       let size = 0;
@@ -106,8 +112,9 @@ async function route(req, res) {
       job.meta = { title: name.replace(/\.[^.]+$/, ''), platformLabel: '本地上传', engine: '本地文件' };
       job.stages.fetch = { status: 'done', doneAt: new Date().toISOString() };
       log(job, `已上传 ${name}（${(size / 1048576).toFixed(1)} MB）`);
+      if (url.searchParams.get('defer') === '1') job.status = 'draft';
       await saveJob(job);
-      runPipeline(job, { from: 'probe' }).catch(() => {});
+      if (job.status !== 'draft') runPipeline(job, { from: 'probe' }).catch(() => {});
       return send(res, 201, summary(job));
     }
 
@@ -125,30 +132,44 @@ async function route(req, res) {
       }
       if (action === 'brief' && req.method === 'POST') {
         const b = await readJson(req);
-        job.brief = Object.fromEntries(['product', 'notes', 'model', 'style'].map(k => [k, String(b[k] || '').slice(0, 1500)]));
+        job.brief = cleanBrief(b);
         await saveJob(job);
         return send(res, 200, job.brief);
       }
       if (action === 'assets' && req.method === 'POST') {
         const role = url.searchParams.get('role');
         const ext = ALLOWED_IMAGE[String(req.headers['content-type']).split(';')[0]];
-        if (!['model', 'product'].includes(role) || !ext) return send(res, 400, { error: '只支持 JPG / PNG / WebP 的模特或商品图' });
+        if (!ASSET_ROLES[role]) return send(res, 400, { error: '素材类型只能是 模特 / 衣服商品 / 效果参考' });
+        if (!ext) return send(res, 400, { error: '只支持 JPG / PNG / WebP 图片' });
+        const same = job.assets.filter(a => a.role === role);
+        if (ASSET_ROLES[role].max > 1 && same.length >= ASSET_ROLES[role].max) return send(res, 400, { error: `${ASSET_ROLES[role].label}最多 ${ASSET_ROLES[role].max} 张，先删掉一张` });
         await mkdir(path.join(root, 'assets'), { recursive: true });
-        const rel = `assets/${role}-${Date.now()}${ext}`;
+        const rel = `assets/${role}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}${ext}`;
         let size = 0;
         req.on('data', c => { size += c.length; if (size > 20 * 1024 * 1024) req.destroy(new Error('图片超过 20 MB')); });
         await pipeline(req, createWriteStream(path.join(root, rel)));
-        for (const old of job.assets.filter(a => a.role === role)) await unlink(path.join(root, old.file)).catch(() => {});
-        job.assets = [...job.assets.filter(a => a.role !== role), { role, file: rel }];
+        if (ASSET_ROLES[role].max === 1) {
+          for (const old of same) await unlink(path.join(root, old.file)).catch(() => {});
+          job.assets = job.assets.filter(a => a.role !== role);
+        }
+        job.assets = [...job.assets, { role, file: rel }];
         await saveJob(job);
         return send(res, 200, job.assets);
       }
       if (action === 'assets' && req.method === 'DELETE') {
+        const target = url.searchParams.get('file') || '';
         const role = parts[4];
-        for (const old of job.assets.filter(a => a.role === role)) await unlink(path.join(root, old.file)).catch(() => {});
-        job.assets = job.assets.filter(a => a.role !== role);
+        const drop = job.assets.filter(a => (target ? a.file === target : a.role === role));
+        for (const old of drop) await unlink(path.join(root, old.file)).catch(() => {});
+        job.assets = job.assets.filter(a => !drop.includes(a));
         await saveJob(job);
         return send(res, 200, job.assets);
+      }
+      if (action === 'start' && req.method === 'POST') {
+        if (isRunning(job.id)) return send(res, 409, { error: '任务正在运行' });
+        job.status = 'running';
+        runPipeline(job, { from: job.source.platform === 'local' ? 'probe' : 'fetch' }).catch(() => {});
+        return send(res, 202, summary(job));
       }
       if (action === 'rerun' && req.method === 'POST') {
         const { from = 'director' } = await readJson(req);
