@@ -165,17 +165,33 @@ img { display: block; }
 .scroll .ic { width: 14px; height: 14px; animation: nudge 1.6s ease-in-out infinite; }
 @keyframes nudge { 50% { transform: translateY(3px); } }
 
-/* scenes: light valley sway + dark jellyfish */
+/* scenes: light valley (golden hour) + dark jellyfish (bioluminescent) */
 .sway { transform-origin: 50% 100%; animation: sway 7s ease-in-out infinite; }
 @keyframes sway { 50% { transform: skewX(1.2deg); } }
-.drift { animation: drift 40s linear infinite; }
-@keyframes drift { to { transform: translateX(-160px); } }
+.cloud { animation: drift 85s linear infinite; }
+@keyframes drift { to { transform: translateX(-200px); } }
+.bird { animation: birdBob 3.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.bird:nth-child(2) { animation-duration: 2.7s; animation-delay: -.6s; }
+.bird:nth-child(3) { animation-duration: 3.6s; animation-delay: -1.4s; }
+@keyframes birdBob { 50% { transform: translateY(3px); } }
+.spark { animation: twinkle 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes twinkle { 0%, 100% { opacity: .2; transform: scale(.7); } 50% { opacity: 1; transform: scale(1.15); } }
+.ray-sweep { animation: rayBreathe 7s ease-in-out infinite; }
+@keyframes rayBreathe { 0%, 100% { opacity: .78; } 50% { opacity: 1; } }
+
 .jelly { animation: float 9s ease-in-out infinite; transform-origin: 900px 300px; }
 @keyframes float { 50% { transform: translateY(-26px) rotate(-2deg); } }
 .tent { animation: tent 5s ease-in-out infinite; transform-origin: top; }
 .tent:nth-child(2n) { animation-duration: 6.5s; animation-delay: -1s; }
 .tent:nth-child(3n) { animation-duration: 4.2s; animation-delay: -2s; }
 @keyframes tent { 50% { transform: skewX(4deg) translateX(6px); } }
+.node-pulse { animation: nodePulse 3s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes nodePulse { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+.mote { animation: moteFloat 9s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.mote.hero { animation-duration: 13s; }
+@keyframes moteFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-16px); } }
+.glow-pulse { animation: glowPulse 6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes glowPulse { 0%, 100% { opacity: .55; transform: scale(1); } 50% { opacity: .85; transform: scale(1.08); } }
 
 /* ───── home sections ───── */
 .section { padding: 90px 40px 0; max-width: 1480px; margin: 0 auto; }
