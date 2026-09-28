@@ -43,7 +43,7 @@ function flowerField() {
   const r = rng(42);
   const palette = ['#c96a3e', '#d98a5e', '#8b5a6b', '#e7b9a8', '#f4ece0', '#6f7a4a', '#b3487a'];
   let out = '';
-  for (let i = 0; i < 300; i++) {
+  for (let i = 0; i < 420; i++) {
     const t = Math.pow(r(), 0.72);
     const y = 800 + t * 210;
     const x = r() * 1600;
@@ -62,7 +62,7 @@ function flowerField() {
 function grassField() {
   const r = rng(7);
   let out = '';
-  for (let i = 0; i < 220; i++) {
+  for (let i = 0; i < 300; i++) {
     const x = r() * 1600, y = 840 + r() * 170, h = 18 + r() * 46;
     const bend = r() * 14 - 7;
     out += `<path d="M${x.toFixed(0)} ${y.toFixed(0)} q${(bend * 0.7).toFixed(1)} ${(-h / 2).toFixed(0)} ${bend.toFixed(1)} ${(-h).toFixed(0)}" stroke="${r() > 0.5 ? '#4a5c2a' : '#6d7f3c'}" stroke-width="${(1 + r() * 1.6).toFixed(1)}" fill="none" opacity=".8"/>`;
@@ -76,6 +76,78 @@ function tree(cx, cy, scale) {
   const canopy = puffs.map(([dx, dy, r]) => `<circle cx="${(cx + dx * scale).toFixed(1)}" cy="${(cy + dy * scale).toFixed(1)}" r="${(r * scale).toFixed(1)}"/>`).join('');
   return `<g fill="#3f3021">${canopy}</g><g fill="#5a4228" opacity=".85"><circle cx="${(cx - 2).toFixed(1)}" cy="${(cy + 6 * scale).toFixed(1)}" r="${(13 * scale).toFixed(1)}"/></g>
   <rect x="${(cx - 3).toFixed(1)}" y="${(cy + 10 * scale).toFixed(1)}" width="${(6 * scale).toFixed(1)}" height="${(28 * scale).toFixed(1)}" fill="#2c2015"/>`;
+}
+
+// Low rounded bush — same overlapping-circle logic as tree() but wide/short, no trunk. Used
+// to close the flat gap between the rock silhouette and the meadow so the mid-ground doesn't
+// read as empty haze.
+function shrub(r, cx, cy, scale, fill) {
+  const n = 4 + Math.floor(r() * 2);
+  let out = `<g fill="${fill}">`;
+  for (let i = 0; i < n; i++) {
+    const dx = (r() - 0.5) * 24 * scale, dy = (r() - 0.5) * 8 * scale - 3;
+    out += `<circle cx="${(cx + dx).toFixed(1)}" cy="${(cy + dy).toFixed(1)}" r="${((9 + r() * 6) * scale).toFixed(1)}"/>`;
+  }
+  return out + `</g>`;
+}
+
+// Bridges the rock -> meadow transition: a soft rolling foothill line, warm-to-olive, dotted
+// with shrub clusters and a few grounding pebbles so that band carries real texture instead
+// of plain haze.
+function foothillBand() {
+  const r = rng(58);
+  const fills = ['#6d6a3f', '#7c7645', '#5c6a3a'];
+  let shrubs = '';
+  for (let i = 0; i < 22; i++) {
+    const x = 40 + r() * 1520;
+    const y = 700 + r() * 70 - Math.abs(x - 800) * 0.02;
+    shrubs += shrub(r, x, y, 0.6 + r() * 0.7, fills[Math.floor(r() * fills.length)]);
+  }
+  let pebbles = '';
+  for (let i = 0; i < 14; i++) {
+    const x = r() * 1600, y = 745 + r() * 40, rx = 4 + r() * 7;
+    pebbles += `<ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="${rx.toFixed(1)}" ry="${(rx * 0.6).toFixed(1)}" fill="#5a5240" opacity="${(0.35 + r() * 0.3).toFixed(2)}"/>`;
+  }
+  return `<path d="M0 760 C220 710 460 745 700 715 C940 688 1180 730 1420 705 C1500 697 1560 706 1600 712 L1600 830 L0 830Z" fill="url(#foothill)"/>${pebbles}${shrubs}`;
+}
+
+// Soft tonal clumps to break up the meadow's flat 2-stop fill — irregular, low-opacity,
+// slightly varied greens rather than a distinct new shape vocabulary.
+function meadowClumps() {
+  const r = rng(71);
+  const tones = ['#88a23c', '#5f7a2c', '#3f5a20'];
+  let out = '';
+  for (let i = 0; i < 46; i++) {
+    const x = r() * 1600, y = 840 + r() * 150;
+    const rx = 40 + r() * 90, ry = rx * (0.22 + r() * 0.1);
+    out += `<ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="${rx.toFixed(1)}" ry="${ry.toFixed(1)}" fill="${tones[Math.floor(r() * tones.length)]}" opacity="${(0.1 + r() * 0.14).toFixed(2)}"/>`;
+  }
+  return out;
+}
+
+// Foreground stones anchor the very front edge with tactile, close-up detail.
+function stones() {
+  const r = rng(84);
+  let out = '';
+  for (let i = 0; i < 10; i++) {
+    const x = r() * 1600, y = 945 + r() * 45, s = 8 + r() * 14;
+    out += `<g transform="translate(${x.toFixed(1)} ${y.toFixed(1)})">
+      <ellipse rx="${s.toFixed(1)}" ry="${(s * 0.62).toFixed(1)}" fill="#5a5240"/>
+      <path d="M${(-s * 0.5).toFixed(1)} ${(-s * 0.2).toFixed(1)} Q0 ${(-s * 0.5).toFixed(1)} ${(s * 0.5).toFixed(1)} ${(-s * 0.1).toFixed(1)}" stroke="#8a8064" stroke-width="${(s * 0.18).toFixed(1)}" fill="none" opacity=".6" stroke-linecap="round"/>
+    </g>`;
+  }
+  return out;
+}
+
+// Faint serrated tree-line along part of the far ridge so the horizon doesn't read as a bare
+// smooth silhouette — stays under the far-ridge blur, so it settles in as texture, not detail.
+function farTreeline() {
+  const r = rng(19);
+  let d = 'M40 592';
+  for (let x = 40; x < 480; x += 10) d += ` L${x} ${592 - r() * 16}`;
+  let d2 = 'M1040 560';
+  for (let x = 1040; x < 1560; x += 10) d2 += ` L${x} ${560 - r() * 18}`;
+  return `<path d="${d}" stroke="#8f8aa8" stroke-width="3" fill="none" opacity=".5"/><path d="${d2}" stroke="#8f8aa8" stroke-width="3" fill="none" opacity=".5"/>`;
 }
 
 export const lightScene = () => `
@@ -95,8 +167,9 @@ export const lightScene = () => `
     </linearGradient>
     <linearGradient id="cloudLit" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff8ef"/><stop offset="1" stop-color="#f3c9a6"/></linearGradient>
     <linearGradient id="farRidge" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c7c2d8"/><stop offset="1" stop-color="#a79fc0"/></linearGradient>
-    <linearGradient id="rock" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#eaddd6"/><stop offset=".5" stop-color="#b79f9e"/><stop offset="1" stop-color="#786274"/></linearGradient>
+    <linearGradient id="rock" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f2d8ae"/><stop offset=".45" stop-color="#c99772"/><stop offset="1" stop-color="#7c5b62"/></linearGradient>
     <linearGradient id="midHill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8a7a5a"/><stop offset="1" stop-color="#5c5638"/></linearGradient>
+    <linearGradient id="foothill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7c7042"/><stop offset="1" stop-color="#4d5c2a"/></linearGradient>
     <linearGradient id="hill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c2a94e"/><stop offset=".5" stop-color="#8f9a3e"/><stop offset="1" stop-color="#546b28"/></linearGradient>
     <linearGradient id="hill2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#93a55c"/><stop offset="1" stop-color="#4c6626"/></linearGradient>
     <linearGradient id="meadow" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#74902f"/><stop offset="1" stop-color="#2e4416"/></linearGradient>
@@ -126,6 +199,7 @@ export const lightScene = () => `
   <!-- far ridge: cool, hazy, low-contrast — atmospheric perspective anchor -->
   <g class="px" data-depth="7">
     <path d="M0 610 L150 520 L270 560 L420 450 L530 505 L660 470 L790 540 L920 480 L1060 560 L1190 485 L1330 545 L1470 470 L1600 520 L1600 720 L0 720Z" fill="url(#farRidge)" opacity=".55" filter="url(#blurfar)"/>
+    <g opacity=".55" filter="url(#blurfar)">${farTreeline()}</g>
   </g>
 
   <!-- near rock: warm, sharp, with a sunlit rim edge along its right (sun-facing) silhouette -->
@@ -137,6 +211,10 @@ export const lightScene = () => `
   </g>
   <g class="px" data-depth="13"><path d="M1020 700 L1170 540 L1240 575 L1350 470 L1440 520 L1540 460 L1600 480 L1600 780 Z" fill="url(#midHill)" opacity=".9"/>
     <path d="M1170 540 L1240 575 L1350 470 L1440 520 L1540 460" fill="none" stroke="#ffdca8" stroke-width="2.5" opacity=".4" stroke-linecap="round"/></g>
+
+  <!-- foothill: bridges the rock silhouette and the meadow so the mid-ground carries texture
+       instead of empty haze — this is the "tighten the composition" layer. -->
+  <g class="px" data-depth="17">${foothillBand()}</g>
 
   <g class="px" data-depth="20">
     <path d="M0 720 C160 640 330 650 520 700 C700 748 880 668 1060 676 C1250 684 1430 626 1600 650 L1600 1000 L0 1000Z" fill="url(#hill)"/>
@@ -156,8 +234,10 @@ export const lightScene = () => `
 
   <g class="px" data-depth="34">
     <path d="M0 830 C300 770 620 800 900 790 C1180 780 1400 752 1600 770 L1600 1000 L0 1000Z" fill="url(#meadow)"/>
+    ${meadowClumps()}
     <g class="sway">${grassField()}</g>
     <g class="sway" filter="url(#soft)">${flowerField()}</g>
+    ${stones()}
   </g>
 
   <rect width="1600" height="1000" fill="url(#haze)" opacity=".35"/>
