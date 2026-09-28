@@ -15,7 +15,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 // one blurred blob, each cluster warmed on its underside by the low sun.
 function paintCloud(r, cx, cy, scale, delay) {
   const puffs = 5 + Math.floor(r() * 3);
-  let out = `<g class="cloud" filter="url(#cloudSoft)" style="animation-delay:${delay}s">`;
+  let out = `<g class="cloud scene-macro fx-heavy" filter="url(#cloudSoft)" style="--motion-delay:${delay}s">`;
   for (let i = 0; i < puffs; i++) {
     const px = cx + (r() - 0.5) * 130 * scale;
     const py = cy + (r() - 0.5) * 30 * scale - i * 1.5;
@@ -54,7 +54,7 @@ function flowerField() {
     out += `<ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="${s.toFixed(1)}" ry="${(s * 0.7).toFixed(1)}" fill="${c}" opacity="${op}"/>`;
     if (s > 5 && r() > 0.55) out += `<path d="M${x.toFixed(1)} ${(y + s * 0.6).toFixed(1)} q2 ${(s * 2).toFixed(1)} -1 ${(s * 3.2).toFixed(1)}" stroke="#3d4a26" stroke-width="1.1" fill="none" opacity=".55"/>`;
     // Rare catchlight — a tiny bright dot beside a nearby bloom, like dew catching the sun.
-    if (depth > 0.6 && r() > 0.92) out += `<circle class="spark" cx="${(x + s * 1.6).toFixed(1)}" cy="${(y - s * 0.4).toFixed(1)}" r="${(0.8 + r()).toFixed(1)}" fill="#fff3df" opacity="${(0.5 + r() * 0.4).toFixed(2)}" style="animation-delay:${(-r() * 3).toFixed(2)}s"/>`;
+    if (depth > 0.6 && r() > 0.92) out += `<circle class="spark scene-micro" cx="${(x + s * 1.6).toFixed(1)}" cy="${(y - s * 0.4).toFixed(1)}" r="${(0.8 + r()).toFixed(1)}" fill="#fff3df" opacity="${(0.5 + r() * 0.4).toFixed(2)}" style="--motion-delay:${(-r() * 3).toFixed(2)}s"/>`;
   }
   return out;
 }
@@ -150,98 +150,102 @@ function farTreeline() {
   return `<path d="${d}" stroke="#8f8aa8" stroke-width="3" fill="none" opacity=".5"/><path d="${d2}" stroke="#8f8aa8" stroke-width="3" fill="none" opacity=".5"/>`;
 }
 
+// A restrained foreground pass keeps the photographic base alive without covering its
+// detailed meadow. Stems are split by depth so the wind reads as a soft wave instead of
+// one synchronized transform across the whole flower field.
+function valleyStemLayer(r, count, yMin, yMax, hMin, hMax, layerClass) {
+  const petals = ['#fff4df', '#f6b06a', '#d58bb5', '#f8d76f'];
+  let out = `<g class="valley-stems ${layerClass} scene-micro">`;
+  for (let i = 0; i < count; i++) {
+    const x = r() * 1600;
+    const y = yMin + r() * (yMax - yMin);
+    const h = hMin + r() * (hMax - hMin);
+    const bend = (r() - 0.5) * (layerClass === 'valley-stems-near' ? 38 : 26);
+    const topX = x + bend;
+    const topY = y - h;
+    const delay = (-r() * 9).toFixed(2);
+    const color = petals[Math.floor(r() * petals.length)];
+    out += `<path class="valley-stem scene-micro" d="M${x.toFixed(1)} ${y.toFixed(1)} Q${(x + bend * .4).toFixed(1)} ${(y - h * .52).toFixed(1)} ${topX.toFixed(1)} ${topY.toFixed(1)}" stroke="#344c25" stroke-width="${(0.8 + r() * 1.2).toFixed(1)}" fill="none" opacity="${(0.34 + r() * .36).toFixed(2)}" style="--motion-delay:${delay}s"/>`;
+    if (r() > (layerClass === 'valley-stems-near' ? .18 : .3)) {
+      const size = 2 + r() * (layerClass === 'valley-stems-near' ? 4.2 : 3.2);
+      out += `<circle class="valley-petal spark scene-micro" cx="${topX.toFixed(1)}" cy="${topY.toFixed(1)}" r="${size.toFixed(1)}" fill="${color}" opacity="${(0.46 + r() * .4).toFixed(2)}" style="--motion-delay:${delay}s"/>`;
+    }
+  }
+  return out + '</g>';
+}
+
+function valleyStems() {
+  const r = rng(419);
+  return valleyStemLayer(r, 28, 952, 990, 24, 54, 'valley-stems-far')
+    + valleyStemLayer(r, 22, 980, 1010, 42, 82, 'valley-stems-mid')
+    + valleyStemLayer(r, 12, 1000, 1030, 72, 132, 'valley-stems-near');
+}
+
 export const lightScene = () => `
-<svg class="light-scene" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+<svg class="light-scene scene-svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
   <defs>
-    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#5d6f95"/><stop offset=".28" stop-color="#8c8fa8"/><stop offset=".52" stop-color="#d6b6ac"/>
-      <stop offset=".68" stop-color="#f0c19a"/><stop offset=".82" stop-color="#f6b378"/><stop offset="1" stop-color="#f8b06a"/>
-    </linearGradient>
-    <radialGradient id="sunGlow" cx=".685" cy=".565" r=".5">
-      <stop offset="0" stop-color="#fffaf0"/><stop offset=".07" stop-color="#fff3d9" stop-opacity=".95"/>
-      <stop offset=".22" stop-color="#ffdfa8" stop-opacity=".55"/><stop offset=".46" stop-color="#ffcf8e" stop-opacity=".22"/>
-      <stop offset="1" stop-color="#ffcf8e" stop-opacity="0"/>
+    <radialGradient id="valleySunGlow" cx=".86" cy=".39" r=".56">
+      <stop offset="0" stop-color="#fff8dd" stop-opacity=".82"/><stop offset=".12" stop-color="#ffe4a8" stop-opacity=".46"/>
+      <stop offset=".42" stop-color="#ffc982" stop-opacity=".16"/><stop offset="1" stop-color="#ffc982" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="horizonGlow" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffd9a0" stop-opacity="0"/><stop offset=".5" stop-color="#ffd9a0" stop-opacity=".5"/><stop offset="1" stop-color="#ffd9a0" stop-opacity="0"/>
+    <linearGradient id="valleyHorizonHaze" x1="0" y1="0" x2="0" y2="1">
+      <stop offset=".34" stop-color="#fff1d1" stop-opacity="0"/><stop offset=".58" stop-color="#ffe2b7" stop-opacity=".3"/>
+      <stop offset=".78" stop-color="#eabf9d" stop-opacity=".08"/><stop offset="1" stop-color="#1b2415" stop-opacity="0"/>
     </linearGradient>
+    <radialGradient id="valleyTextLift" cx=".5" cy=".43" r=".5"><stop offset="0" stop-color="#fff4df" stop-opacity=".22"/><stop offset=".6" stop-color="#fff4df" stop-opacity=".06"/><stop offset="1" stop-color="#fff4df" stop-opacity="0"/></radialGradient>
+    <radialGradient id="valleyVignette" cx=".5" cy=".42" r=".78"><stop offset=".58" stop-color="#0d120b" stop-opacity="0"/><stop offset="1" stop-color="#10150c" stop-opacity=".38"/></radialGradient>
     <linearGradient id="cloudLit" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff8ef"/><stop offset="1" stop-color="#f3c9a6"/></linearGradient>
-    <linearGradient id="farRidge" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c7c2d8"/><stop offset="1" stop-color="#a79fc0"/></linearGradient>
-    <linearGradient id="rock" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f2d8ae"/><stop offset=".45" stop-color="#c99772"/><stop offset="1" stop-color="#7c5b62"/></linearGradient>
-    <linearGradient id="midHill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8a7a5a"/><stop offset="1" stop-color="#5c5638"/></linearGradient>
-    <linearGradient id="foothill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7c7042"/><stop offset="1" stop-color="#4d5c2a"/></linearGradient>
-    <linearGradient id="hill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c2a94e"/><stop offset=".5" stop-color="#8f9a3e"/><stop offset="1" stop-color="#546b28"/></linearGradient>
-    <linearGradient id="hill2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#93a55c"/><stop offset="1" stop-color="#4c6626"/></linearGradient>
-    <linearGradient id="meadow" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#74902f"/><stop offset="1" stop-color="#2e4416"/></linearGradient>
-    <linearGradient id="haze" x1="0" y1="0" x2="0" y2="1">
-      <stop offset=".4" stop-color="#f8dcc0" stop-opacity="0"/><stop offset=".66" stop-color="#f8dcc0" stop-opacity=".58"/><stop offset=".8" stop-color="#f8dcc0" stop-opacity="0"/>
-    </linearGradient>
-    <radialGradient id="vignetteL" cx=".5" cy=".42" r=".78"><stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#160f08" stop-opacity=".32"/></radialGradient>
-    <filter id="soft"><feGaussianBlur stdDeviation="1.4"/></filter>
-    <filter id="blurfar"><feGaussianBlur stdDeviation="3"/></filter>
     <filter id="cloudSoft" x="-60%" y="-200%" width="220%" height="500%"><feGaussianBlur stdDeviation="8"/></filter>
-    <filter id="rayBlur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="16"/></filter>
+    <filter id="valleyRayBlur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="18"/></filter>
+    <filter id="valleyHazeBlur" x="-20%" y="-30%" width="140%" height="160%"><feGaussianBlur stdDeviation="22"/></filter>
   </defs>
 
-  <rect width="1600" height="1000" fill="url(#sky)"/>
-
-  <!-- god rays, behind everything so the skyline naturally occludes their base -->
-  <g class="px ray-sweep" data-depth="2" filter="url(#rayBlur)" opacity=".35" style="mix-blend-mode:screen">
-    ${[-8, 4, 16, 28, 40].map((a, i) => `<polygon points="1096,565 ${1096 + Math.cos((200 + a) * Math.PI / 180) * 900},${565 + Math.sin((200 + a) * Math.PI / 180) * 900} ${1096 + Math.cos((214 + a) * Math.PI / 180) * 900},${565 + Math.sin((214 + a) * Math.PI / 180) * 900}" fill="#fff3d6" opacity="${(0.5 - i * 0.07).toFixed(2)}"/>`).join('')}
-  </g>
-
-  <rect width="1600" height="1000" fill="url(#sunGlow)"/>
-  <rect y="560" width="1600" height="220" fill="url(#horizonGlow)"/>
-
-  <g class="px" data-depth="4">${clouds()}</g>
-  <g class="px" data-depth="3">${birds()}</g>
-
-  <!-- far ridge: cool, hazy, low-contrast — atmospheric perspective anchor -->
-  <g class="px" data-depth="7">
-    <path d="M0 610 L150 520 L270 560 L420 450 L530 505 L660 470 L790 540 L920 480 L1060 560 L1190 485 L1330 545 L1470 470 L1600 520 L1600 720 L0 720Z" fill="url(#farRidge)" opacity=".55" filter="url(#blurfar)"/>
-    <g opacity=".55" filter="url(#blurfar)">${farTreeline()}</g>
-  </g>
-
-  <!-- near rock: warm, sharp, with a sunlit rim edge along its right (sun-facing) silhouette -->
-  <g class="px" data-depth="13">
-    <path d="M0 640 L40 470 L110 330 L150 350 L205 215 L240 190 L285 250 L330 300 L390 420 L470 560 L560 690 L0 720Z" fill="url(#rock)"/>
-    <path d="M205 215 L240 190 L262 300 L230 420 L200 560 L160 690 L120 600 L150 420Z" fill="#fff" opacity=".16"/>
-    <path d="M240 190 L285 250 L330 300 L390 420 L470 560 L560 690" fill="none" stroke="#ffe3bc" stroke-width="3" opacity=".55" stroke-linecap="round"/>
-    <path d="M95 470 L130 440 M60 540 L100 505 M340 340 L370 385" stroke="#5f4d58" stroke-width="2" opacity=".25" fill="none"/>
-  </g>
-  <g class="px" data-depth="13"><path d="M1020 700 L1170 540 L1240 575 L1350 470 L1440 520 L1540 460 L1600 480 L1600 780 Z" fill="url(#midHill)" opacity=".9"/>
-    <path d="M1170 540 L1240 575 L1350 470 L1440 520 L1540 460" fill="none" stroke="#ffdca8" stroke-width="2.5" opacity=".4" stroke-linecap="round"/></g>
-
-  <!-- foothill: bridges the rock silhouette and the meadow so the mid-ground carries texture
-       instead of empty haze — this is the "tighten the composition" layer. -->
-  <g class="px" data-depth="17">${foothillBand()}</g>
-
-  <g class="px" data-depth="20">
-    <path d="M0 720 C160 640 330 650 520 700 C700 748 880 668 1060 676 C1250 684 1430 626 1600 650 L1600 1000 L0 1000Z" fill="url(#hill)"/>
-    <path d="M760 760 C900 700 1060 720 1200 700 C1350 680 1480 700 1600 690 L1600 1000 L700 1000Z" fill="url(#hill2)"/>
-    ${tree(365, 690, 1)}${tree(392, 700, .78)}
-    ${tree(1265, 682, 1.15)}${tree(1298, 668, .85)}${tree(1328, 694, .7)}
-    <g transform="translate(60 690)">
-      <path d="M0 40 L70 10 L140 40 L140 90 L0 90Z" fill="#efe7db"/>
-      <path d="M-8 44 L70 4 L150 44 L140 48 L70 14 L0 48Z" fill="#463a2e"/>
-      <rect x="95" y="58" width="22" height="32" fill="#7d6a58"/>
-      <rect x="20" y="52" width="20" height="22" fill="#d9a94e"/><rect x="20" y="52" width="20" height="22" fill="#fff2c4" opacity=".55" filter="url(#soft)"/>
-      <rect x="63" y="4" width="7" height="18" fill="#3a2f24"/>
+  <!-- The photographic base carries the mountain and meadow detail. SVG remains responsible
+       for motion, lighting and the subtle atmospheric treatment. -->
+  <g class="px scene-macro valley-base" data-depth="2">
+    <g class="valley-base-drift">
+      <image href="/assets/hero-valley-golden.webp" x="-18" y="-12" width="1636" height="1024" preserveAspectRatio="xMidYMid slice"/>
     </g>
   </g>
 
-  <rect width="1600" height="1000" fill="url(#haze)"/>
+  <!-- A low-alpha grade unifies the generated base with the rest of the interface. -->
+  <rect width="1600" height="1000" fill="#f5c892" opacity=".08" style="mix-blend-mode:soft-light"/>
 
-  <g class="px" data-depth="34">
-    <path d="M0 830 C300 770 620 800 900 790 C1180 780 1400 752 1600 770 L1600 1000 L0 1000Z" fill="url(#meadow)"/>
-    ${meadowClumps()}
-    <g class="sway">${grassField()}</g>
-    <g class="sway" filter="url(#soft)">${flowerField()}</g>
-    ${stones()}
+  <!-- Slow rays are deliberately soft so they read as atmosphere rather than vector shapes. -->
+  <g class="px scene-macro ray-sweep fx-heavy" data-depth="3" filter="url(#valleyRayBlur)" opacity=".24" style="mix-blend-mode:screen">
+    <g class="ray-drift">
+      ${[-12, 0, 12, 24].map((a, i) => `<polygon points="1380,380 ${1380 + Math.cos((155 + a) * Math.PI / 180) * 900},${380 + Math.sin((155 + a) * Math.PI / 180) * 900} ${1380 + Math.cos((169 + a) * Math.PI / 180) * 900},${380 + Math.sin((169 + a) * Math.PI / 180) * 900}" fill="#fff3d6" opacity="${(0.36 - i * 0.06).toFixed(2)}"/>`).join('')}
+    </g>
   </g>
 
-  <rect width="1600" height="1000" fill="url(#haze)" opacity=".35"/>
-  <rect width="1600" height="1000" fill="url(#vignetteL)"/>
+  <rect width="1600" height="1000" fill="url(#valleySunGlow)"/>
+  <rect y="390" width="1600" height="470" fill="url(#valleyHorizonHaze)"/>
+
+  <g class="px scene-macro valley-clouds" data-depth="5" opacity=".13">${clouds()}</g>
+  <g class="px scene-micro" data-depth="4" opacity=".42">${birds()}</g>
+
+  <!-- Haze layer follows the far valley and moves less than the foreground. -->
+  <g class="px scene-macro valley-mist valley-mist-a fx-heavy" data-depth="7" opacity=".36" filter="url(#valleyHazeBlur)">
+    <g class="mist-drift mist-drift-a">
+      <ellipse cx="790" cy="600" rx="500" ry="86" fill="#f9dfc4"/>
+      <ellipse cx="1090" cy="660" rx="320" ry="54" fill="#f4cda9" opacity=".45"/>
+    </g>
+  </g>
+  <g class="px scene-macro valley-mist valley-mist-b fx-heavy" data-depth="9" opacity=".22" filter="url(#valleyHazeBlur)">
+    <g class="mist-drift mist-drift-b">
+      <path d="M-80 694 C220 624 450 680 710 646 C940 614 1160 660 1710 600 L1710 742 C1320 710 1010 736 730 716 C420 694 200 758 -80 730Z" fill="#fff0d0"/>
+    </g>
+  </g>
+
+  <!-- Center lift keeps black headline text readable while leaving the landscape visible. -->
+  <rect class="valley-text-lift" width="1600" height="1000" fill="url(#valleyTextLift)"/>
+
+  <!-- Sparse animated stems add a living foreground pass over the already detailed flowers. -->
+  <g class="px scene-micro" data-depth="30">
+    <g class="sway scene-micro">${valleyStems()}</g>
+  </g>
+
+  <rect width="1600" height="1000" fill="url(#valleyVignette)"/>
 </svg>`;
 
 /* ───────────────────────── dark scene: bioluminescent jellyfish ───────────────────────── */
@@ -264,11 +268,11 @@ function tentacles() {
     }
     const w = i % 4 === 0 ? 5 : 1 + r() * 2.2;
     const op = (0.4 + r() * 0.5).toFixed(2);
-    out += `<path class="tent" d="${d}" stroke="url(#tentg)" stroke-width="${w.toFixed(1)}" fill="none" stroke-linecap="round" opacity="${op}"/>`;
+    out += `<path class="tent scene-micro" d="${d}" stroke="url(#tentg)" stroke-width="${w.toFixed(1)}" fill="none" stroke-linecap="round" opacity="${op}"/>`;
     // bioluminescent nodes along ~1/3 of tentacles
     if (r() > 0.62) {
       const [nx, ny] = pts[3 + Math.floor(r() * 3)];
-      out += `<circle class="node-pulse" cx="${nx.toFixed(0)}" cy="${ny.toFixed(0)}" r="${(1.6 + r() * 1.6).toFixed(1)}" fill="#ffcdb8" filter="url(#glow2)" style="animation-delay:${(-r() * 3).toFixed(2)}s"/>`;
+      out += `<circle class="node-pulse scene-micro" cx="${nx.toFixed(0)}" cy="${ny.toFixed(0)}" r="${(1.6 + r() * 1.6).toFixed(1)}" fill="#ffcdb8" filter="url(#glow2)" style="--motion-delay:${(-r() * 3).toFixed(2)}s"/>`;
     }
   }
   return out;
@@ -281,13 +285,15 @@ function motes() {
   for (let i = 0; i < 60; i++) {
     const hero = r() > 0.88;
     const rad = hero ? 3 + r() * 3.5 : 0.6 + r() * 1.6;
-    out += `<circle class="mote${hero ? ' hero' : ''}" cx="${(r() * 1600).toFixed(0)}" cy="${(r() * 1000).toFixed(0)}" r="${rad.toFixed(1)}" fill="${hues[Math.floor(r() * hues.length)]}" opacity="${(0.15 + r() * 0.5).toFixed(2)}" ${hero ? 'filter="url(#glow2)" style="mix-blend-mode:screen"' : ''} style="animation-delay:${(-r() * 12).toFixed(2)}s"/>`;
+    const delay = (-r() * 12).toFixed(2);
+    const style = hero ? `--motion-delay:${delay}s;mix-blend-mode:screen` : `--motion-delay:${delay}s`;
+    out += `<circle class="mote scene-micro${hero ? ' focal-mote' : ''}" cx="${(r() * 1600).toFixed(0)}" cy="${(r() * 1000).toFixed(0)}" r="${rad.toFixed(1)}" fill="${hues[Math.floor(r() * hues.length)]}" opacity="${(0.15 + r() * 0.5).toFixed(2)}" ${hero ? 'filter="url(#glow2)"' : ''} style="${style}"/>`;
   }
   return out;
 }
 
 export const darkScene = () => `
-<svg class="dark-scene" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+<svg class="dark-scene scene-svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
   <defs>
     <radialGradient id="deepBg" cx=".5" cy=".55" r=".75"><stop offset="0" stop-color="#120404"/><stop offset=".55" stop-color="#060202"/><stop offset="1" stop-color="#000"/></radialGradient>
     <radialGradient id="aura" cx=".68" cy=".38" r=".55"><stop offset="0" stop-color="#ff2d1f" stop-opacity=".46"/><stop offset=".4" stop-color="#c4180d" stop-opacity=".24"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
@@ -305,16 +311,16 @@ export const darkScene = () => `
 
   <rect width="1600" height="1000" fill="url(#deepBg)"/>
   <rect width="1600" height="1000" fill="url(#aura)"/>
-  <g class="px" data-depth="9">${motes()}</g>
+  <g class="px scene-micro" data-depth="9">${motes()}</g>
 
-  <g class="px" data-depth="34">
-    <ellipse class="glow-pulse" cx="1140" cy="760" rx="260" ry="70" fill="url(#underglow)" style="mix-blend-mode:screen"/>
+  <g class="px scene-macro" data-depth="34">
+    <ellipse class="glow-pulse scene-macro" cx="1140" cy="760" rx="260" ry="70" fill="url(#underglow)" style="mix-blend-mode:screen"/>
 
-    <g class="ray-sweep" filter="url(#rayBlurD)" opacity=".3" style="mix-blend-mode:screen">
+    <g class="ray-sweep scene-macro fx-heavy" filter="url(#rayBlurD)" opacity=".3" style="mix-blend-mode:screen">
       ${[-16, -4, 8, 20].map((a, i) => `<polygon points="1130,430 ${1130 + Math.cos((70 + a) * Math.PI / 180) * 760},${430 + Math.sin((70 + a) * Math.PI / 180) * 760} ${1130 + Math.cos((84 + a) * Math.PI / 180) * 760},${430 + Math.sin((84 + a) * Math.PI / 180) * 760}" fill="#ff8f6b" opacity="${(0.4 - i * 0.06).toFixed(2)}"/>`).join('')}
     </g>
 
-    <g class="jelly">
+    <g class="jelly scene-macro">
       <g filter="url(#glow2)">${tentacles()}</g>
       <g style="mix-blend-mode:screen">
         <path d="M900 470 C878 242 1012 164 1132 176 C1264 188 1332 302 1300 470 C1272 452 1248 490 1218 470 C1190 492 1158 454 1128 476 C1098 496 1066 456 1036 478 C1006 496 976 456 946 480 C926 490 912 470 900 470Z" fill="url(#bell)" filter="url(#glow)" opacity=".9"/>

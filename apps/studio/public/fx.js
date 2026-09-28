@@ -19,29 +19,56 @@ function hero(root) {
   const inner = heroEl.querySelector('.hero-inner');
   const scene = heroEl.querySelector('.scene');
   let tx = 0, ty = 0, x = 0, y = 0, raf = 0, alive = true;
+  let inView = true;
+  let pageVisible = document.visibilityState !== 'hidden';
+  const active = () => alive && inView && pageVisible;
+  const pauseScene = paused => scene?.classList.toggle('motion-paused', paused);
   const tick = () => {
-    if (!alive) return;
+    raf = 0;
+    if (!active()) { pauseScene(true); return; }
+    pauseScene(false);
     x = lerp(x, tx, 0.06); y = lerp(y, ty, 0.06);
     for (const l of layers) {
       const d = Number(l.dataset.depth || 0);
       l.style.transform = `translate(${(-x * d).toFixed(2)}px, ${(-y * d * 0.6).toFixed(2)}px)`;
     }
-    const sp = Math.min(window.scrollY / window.innerHeight, 1);
+    const scrollY = window.scrollY;
+    const sp = Math.min(scrollY / window.innerHeight, 1);
     // Keep the composer fully usable while it is on screen; fade only once most of the hero is gone.
     const fade = Math.min(Math.max((sp - 0.55) / 0.4, 0), 1);
     if (inner) { inner.style.transform = `translateY(${sp * 36}px) scale(${1 - fade * 0.04})`; inner.style.opacity = String(1 - fade); }
     if (scene) scene.style.transform = `scale(${1.08 + sp * 0.08})`;
     heroEl.style.setProperty('--dim', String(fade * 0.5));
-    raf = requestAnimationFrame(tick);
+    if (Math.abs(x - tx) > 0.002 || Math.abs(y - ty) > 0.002) raf = requestAnimationFrame(tick);
   };
+  const wake = () => {
+    if (!active()) {
+      pauseScene(true);
+      if (raf) { cancelAnimationFrame(raf); raf = 0; }
+      return;
+    }
+    if (!raf) raf = requestAnimationFrame(tick);
+  };
+  const visibility = () => { pageVisible = document.visibilityState !== 'hidden'; wake(); };
+  on(document, 'visibilitychange', visibility);
+  on(window, 'scroll', wake, { passive: true });
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver(entries => {
+      inView = entries.some(entry => entry.isIntersecting && entry.intersectionRatio > 0);
+      wake();
+    }, { threshold: [0, 0.01] });
+    io.observe(heroEl);
+    cleanups.push(() => io.disconnect());
+  }
   on(heroEl, 'pointermove', e => {
     const r = heroEl.getBoundingClientRect();
     tx = (e.clientX - r.left) / r.width - 0.5;
     ty = (e.clientY - r.top) / r.height - 0.5;
+    wake();
   });
-  on(heroEl, 'pointerleave', () => { tx = 0; ty = 0; });
-  raf = requestAnimationFrame(tick);
-  cleanups.push(() => { alive = false; cancelAnimationFrame(raf); });
+  on(heroEl, 'pointerleave', () => { tx = 0; ty = 0; wake(); });
+  wake();
+  cleanups.push(() => { alive = false; pauseScene(true); if (raf) cancelAnimationFrame(raf); });
 }
 
 /* cursor spotlight on glass surfaces (sets --mx/--my, CSS paints the glow) */
