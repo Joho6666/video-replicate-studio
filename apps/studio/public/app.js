@@ -2,6 +2,8 @@
 import { darkScene, lightScene } from './scenes.js';
 import { bindGuide, guideHtml } from './guide.js';
 import { countUp, mount, moveIndicator, refresh, splitChars, transition } from './fx.js';
+import { mountBoard } from './board.js';
+import { renderScriptNew } from './script.js';
 const $ = (sel, root = document) => root.querySelector(sel);
 const app = $('#app');
 
@@ -23,7 +25,7 @@ const I = {
   film: 'M4 5h16v14H4z M8 5v14 M16 5v14 M4 9h4 M4 15h4 M16 9h4 M16 15h4', play: 'M8 5l11 7-11 7z', down: 'M12 4v12M6 11l6 6 6-6M5 20h14',
   folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', upload: 'M12 16V4M6 9l6-6 6 6M5 20h14', spark: 'M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6',
 };
-const PLATFORMS = { douyin: ['抖音', '#ff3d7f'], bilibili: ['B站', '#27a7e7'], tiktok: ['TikTok', '#1db954'], instagram: ['Instagram', '#f08c1a'], local: ['本地', '#7a5cff'] };
+const PLATFORMS = { douyin: ['抖音', '#ff3d7f'], bilibili: ['B站', '#27a7e7'], tiktok: ['TikTok', '#1db954'], instagram: ['Instagram', '#f08c1a'], local: ['本地', '#7a5cff'], script: ['脚本', '#c08a3e'] };
 const STAGES = [['fetch', '抓取原片'], ['probe', '解析媒体'], ['shots', '镜头切分'], ['director', '导演拆解']];
 const REF_FMT = {
   en: (k, n) => `@${k}${n}`,
@@ -162,6 +164,7 @@ function renderHome({ focus = false, toLibrary = false } = {}) {
       <div class="hero-actions rise" style="--i:6">
         <button class="btn text" id="toggleBrief" type="button">收起复刻设置</button>
         <button class="btn text" id="upload" type="button">${icon(I.upload)}用本地视频</button>
+        <a class="btn text" href="#/script">用脚本出片 →</a>
         <a class="btn text" id="demoLink" href="#/guide">看一个真实案例 →</a>
       </div>
       <input type="file" id="uploadInput" accept="video/*" hidden>
@@ -481,7 +484,7 @@ function onTime() {
 }
 
 /* tabs */
-const TABS = [['overview', '爆款拆解'], ['shots', '分镜'], ['libtv', 'LibTV 提示词'], ['h3', 'H3 出片'], ['copy', '带货文案'], ['assets', '素材与导出']];
+const TABS = [['overview', '爆款拆解'], ['shots', '分镜'], ['board', '分镜板'], ['libtv', 'LibTV 提示词'], ['h3', 'H3 出片'], ['copy', '带货文案'], ['assets', '素材与导出']];
 const END_LABEL = { settled: '动作完成', ongoing: '仍在动', cutoff: '中途被切断', unknown: '看不清' };
 const H3_PENDING = ['submitting', 'submitted'];
 const h3Pending = job => Object.values(job.h3 || {}).some(e => H3_PENDING.includes(e.state));
@@ -506,6 +509,7 @@ function renderTabBody(job) {
   state.sig.tab = sig;
   const body = $('#tabBody');
   const d = job.director;
+  if (state.tab === 'board') return void mountBoard(body, job, boardCtx());
 
   if (state.tab === 'overview') {
     if (!d) return void (body.innerHTML = waiting(job, '正在拆解爆点'));
@@ -842,11 +846,27 @@ async function rerun(from) {
   catch (err) { toast(err.message, true); }
 }
 
+const boardCtx = () => ({ api, toast, esc, file, tc });
+
+// Script jobs have no source video: the whole job page is the storyboard board.
+function renderScriptJob(job) {
+  renderJobHead(job);
+  if (state.sig.scriptJob !== job.id) {
+    ['#rail', '#console', '#film'].forEach(sel => $(sel)?.remove());
+    const ws = $('.workspace');
+    ws.className = 'workspace script';
+    ws.innerHTML = '<div id="boardRoot" class="board-root"></div>';
+    state.sig.scriptJob = job.id;
+    mountBoard($('#boardRoot'), job, boardCtx());
+  }
+}
+
 async function refreshJob(id) {
   const job = await api(`/api/jobs/${id}`);
   if (!location.hash.includes(id)) return;
   const prev = state.job;
   state.job = job;
+  if (job.source.platform === 'script') { renderScriptJob(job); return; }
   renderJobHead(job);
   renderRail(job);
   if (!prev || prev.shots.length !== job.shots.length || prev.director?.generatedAt !== job.director?.generatedAt) renderFilm(job);
@@ -875,7 +895,8 @@ async function route() {
   state.job = null;
   await transition(() => {
     app.classList.remove('full');
-    if (location.hash.startsWith('#/guide')) renderGuide();
+    if (location.hash.startsWith('#/script')) renderScriptNew(app, boardCtx());
+    else if (location.hash.startsWith('#/guide')) renderGuide();
     else renderHome({ focus: location.hash.startsWith('#/new'), toLibrary: location.hash.startsWith('#/library') });
   });
   mount(app);

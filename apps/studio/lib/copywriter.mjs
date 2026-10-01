@@ -73,7 +73,7 @@ export function checkCopy(raw, job) {
   return { hard, soft };
 }
 
-async function chat(messages) {
+export async function chat(messages) {
   const res = await fetch(`${config.deepseek.base}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${config.deepseek.key}`, 'Content-Type': 'application/json' },

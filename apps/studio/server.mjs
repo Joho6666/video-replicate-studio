@@ -9,6 +9,8 @@ import { copyMarkdown, runCopywriter, TARGETS, TONES } from './lib/copywriter.mj
 import { buildExport, libtvMarkdown, REF_STYLES } from './lib/export.mjs';
 import { compileH3, h3Markdown, resumeH3, submitH3 } from './lib/h3.mjs';
 import { listVoices } from './lib/moss.mjs';
+import { boardFromDirectorJob, createScriptJob, fillStills, renderJob, splitJob } from './lib/board-api.mjs';
+import { loadBoard, saveBoard } from './lib/board.mjs';
 import { buildFinal, generateVoice, voiceChars } from './lib/voice.mjs';
 import { ASSET_ROLES } from './lib/refs.mjs';
 import { createJob, jobDir, listJobs, loadJob, log, saveJob } from './lib/jobs.mjs';
@@ -93,7 +95,8 @@ async function route(req, res) {
     if (parts[1] === 'jobs' && parts.length === 2) {
       if (req.method === 'GET') return send(res, 200, (await listJobs()).map(summary));
       if (req.method === 'POST') {
-        const body = await readJson(req);
+        const body = await readJson(req, 2_000_000);
+        if (body.script !== undefined) return send(res, 201, summary(await createScriptJob({ text: body.script, title: body.title, brief: cleanBrief(body.brief) })));
         const link = extractUrl(body.text);
         if (!link) return send(res, 400, { error: '没有识别到链接，请粘贴分享文案或视频地址' });
         const platform = detectPlatform(link);
@@ -238,6 +241,23 @@ async function route(req, res) {
       if (action === 'final' && req.method === 'POST') {
         const b = await readJson(req);
         return send(res, 200, await buildFinal(job, { withVoice: b.withVoice !== false }));
+      }
+      if (action === 'board') {
+        const sub = parts[4];
+        if (!sub && req.method === 'GET') { const b = await loadBoard(job); return b ? send(res, 200, b) : send(res, 404, { error: '还没有镜头表' }); }
+        if (!sub && req.method === 'PUT') {
+          try { return send(res, 200, await saveBoard(job, await readJson(req, 2_000_000))); }
+          catch (e) { return send(res, e.errors ? 400 : 500, { error: e.message, errors: e.errors }); }
+        }
+        if (sub === 'split' && req.method === 'POST') return send(res, 200, await splitJob(job));
+        if (sub === 'from-director' && req.method === 'POST') return send(res, 200, await boardFromDirectorJob(job));
+        if (sub === 'stills' && req.method === 'POST') {
+          const b = await readJson(req);
+          // Paid: every image is billed, so the client must echo how many it showed in the confirmation.
+          if (b.confirm !== true) return send(res, 400, { error: '需要先在页面上确认张数' });
+          return send(res, 200, await fillStills(job, { ids: Array.isArray(b.ids) ? b.ids.map(String) : null, again: Boolean(b.again), expect: b.count }));
+        }
+        if (sub === 'animatic' && req.method === 'POST') return send(res, 200, await renderJob(job));
       }
       if (action === 'libtv.md' && req.method === 'GET') {
         if (!job.director) return send(res, 404, { error: '提示词还没生成' });

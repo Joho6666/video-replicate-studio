@@ -12,6 +12,7 @@ export const PLATFORMS = {
   tiktok: { label: 'TikTok' },
   instagram: { label: 'Instagram' },
   local: { label: '本地上传' },
+  script: { label: '脚本' },
 };
 
 /** Share text often wraps the link in prose ("7.9 复制打开抖音… https://v.douyin.com/x/ …"). */

@@ -13,3 +13,6 @@ apps/media-crawler/.env
 *.zip
 # tutorial screenshots contain third-party video frames; regenerate with scripts/capture_tutorial.py
 apps/studio/public/tutorial/
+
+# portfolio site: sample videos include client / third-party content, never committed
+apps/site/media/
