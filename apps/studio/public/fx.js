@@ -22,7 +22,15 @@ function hero(root) {
   let inView = true;
   let pageVisible = document.visibilityState !== 'hidden';
   const active = () => alive && inView && pageVisible;
-  const pauseScene = paused => scene?.classList.toggle('motion-paused', paused);
+  // CSS animations pause via the class; the SMIL wind in the light scene needs the SVG API.
+  const pauseScene = paused => {
+    if (!scene) return;
+    scene.classList.toggle('motion-paused', paused);
+    for (const svg of scene.querySelectorAll('svg')) {
+      const hidden = svg.classList.contains('light-scene') && document.documentElement.dataset.theme === 'dark';
+      if (paused || hidden) svg.pauseAnimations?.(); else svg.unpauseAnimations?.();
+    }
+  };
   const tick = () => {
     raf = 0;
     if (!active()) { pauseScene(true); return; }
@@ -202,7 +210,7 @@ export function mount(root) {
   reveal(root);
   litText(root);
   moveIndicator();
-  if (reduce) return;
+  if (reduce) { root.querySelectorAll('.scene svg').forEach(svg => svg.pauseAnimations?.()); return; }
   spotlight();
   hero(root);
   if (fine) { magnetic(document); tilt(root); }

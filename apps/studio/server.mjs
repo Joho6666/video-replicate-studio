@@ -7,6 +7,9 @@ import { pipeline } from 'node:stream/promises';
 import { config, env, STUDIO_DIR, tools } from './lib/env.mjs';
 import { copyMarkdown, runCopywriter, TARGETS, TONES } from './lib/copywriter.mjs';
 import { buildExport, libtvMarkdown, REF_STYLES } from './lib/export.mjs';
+import { compileH3, h3Markdown, resumeH3, submitH3 } from './lib/h3.mjs';
+import { listVoices } from './lib/moss.mjs';
+import { buildFinal, generateVoice, voiceChars } from './lib/voice.mjs';
 import { ASSET_ROLES } from './lib/refs.mjs';
 import { createJob, jobDir, listJobs, loadJob, log, saveJob } from './lib/jobs.mjs';
 import { isRunning, runPipeline } from './lib/pipeline.mjs';
@@ -65,6 +68,8 @@ async function health() {
       tikhub: { ok: Boolean(config.tikhub.key), label: 'TikHub', note: config.tikhub.key ? 'TikTok · IG · 抖音备用' : '未配置 Key' },
       deepseek: { ok: Boolean(config.deepseek.key), label: 'DeepSeek', note: config.deepseek.key ? config.deepseek.model : '未配置 Key' },
       ffmpeg: { ok: Boolean(tools.ffmpeg && tools.ffprobe), label: 'FFmpeg', note: tools.ffmpeg ? '镜头切分' : '未找到' },
+      minimax: { ok: Boolean(config.minimax.key), label: 'MiniMax H3', note: config.minimax.key ? '一键出片（付费）' : '未配置 Key（可选）' },
+      moss: { ok: Boolean(config.moss.key), label: 'MOSI 语音', note: config.moss.key ? '原片转写 · 配音' : '未配置 Key（可选）' },
     },
     analyzeMaxSec: config.analyzeMaxSec,
   };
@@ -83,6 +88,7 @@ async function route(req, res) {
 
   if (parts[0] === 'api') {
     if (parts[1] === 'health') return send(res, 200, await health());
+    if (parts[1] === 'moss' && parts[2] === 'voices' && req.method === 'GET') return send(res, 200, await listVoices());
 
     if (parts[1] === 'jobs' && parts.length === 2) {
       if (req.method === 'GET') return send(res, 200, (await listJobs()).map(summary));
@@ -124,7 +130,7 @@ async function route(req, res) {
       const root = jobDir(job.id);
       const action = parts[3];
 
-      if (!action && req.method === 'GET') return send(res, 200, { ...job, running: isRunning(job.id) });
+      if (!action && req.method === 'GET') return send(res, 200, { ...job, running: isRunning(job.id), h3Prompts: job.director ? compileH3(job) : [], voiceChars: voiceChars(job) });
       if (!action && req.method === 'DELETE') {
         if (isRunning(job.id)) return send(res, 409, { error: '任务运行中，稍后再删' });
         await rm(root, { recursive: true, force: true });
@@ -213,6 +219,26 @@ async function route(req, res) {
         if (!job.copy) return send(res, 404, { error: '还没有文案' });
         return send(res, 200, copyMarkdown(job), { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`带货文案-${job.id}.md`)}` });
       }
+      if (action === 'h3.md' && req.method === 'GET') {
+        if (!job.director) return send(res, 404, { error: '提示词还没生成' });
+        return send(res, 200, h3Markdown(job), { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`H3提示词-${job.id}.md`)}` });
+      }
+      if (action === 'h3' && req.method === 'POST') {
+        const b = await readJson(req);
+        // Paid: the client must echo the exact segment and seconds it showed in the cost confirmation.
+        if (b.confirm !== true || !Number.isInteger(b.segment) || !Number.isInteger(b.seconds)) return send(res, 400, { error: '需要先在页面上确认费用' });
+        if (isRunning(job.id)) return send(res, 409, { error: '拆解正在运行，等它结束再出片' });
+        const entry = await submitH3(job, b.segment, { resolution: b.resolution, withRefs: Boolean(b.withRefs), again: Boolean(b.again), expectSeconds: b.seconds });
+        return send(res, 202, { segment: b.segment, ...entry });
+      }
+      if (action === 'voice' && req.method === 'POST') {
+        const b = await readJson(req);
+        return send(res, 200, await generateVoice(job, { voiceId: String(b.voiceId || ''), voiceName: String(b.voiceName || '').slice(0, 80) }));
+      }
+      if (action === 'final' && req.method === 'POST') {
+        const b = await readJson(req);
+        return send(res, 200, await buildFinal(job, { withVoice: b.withVoice !== false }));
+      }
       if (action === 'libtv.md' && req.method === 'GET') {
         if (!job.director) return send(res, 404, { error: '提示词还没生成' });
         const style = REF_STYLES[url.searchParams.get('style')] ? url.searchParams.get('style') : 'en';
@@ -254,6 +280,7 @@ if (proxy && !process.env.NODE_USE_ENV_PROXY) {
   server.listen(config.port, '127.0.0.1', () => {
     console.log(`\n  复刻工作台  →  http://127.0.0.1:${config.port}${proxy ? `（外网经代理 ${proxy.replace(/\/\/[^@]*@/, '//')}）` : ''}\n`);
     health().then(h => { for (const e of Object.values(h.engines)) console.log(`  ${e.ok ? '●' : '○'} ${e.label.padEnd(13)} ${e.note}`); console.log(''); });
+    resumeH3().catch(error => console.warn(`H3 恢复轮询失败：${error.message}`));
   });
 }
 

@@ -8,6 +8,8 @@ const app = $('#app');
 const state = {
   health: null, jobs: [], job: null, tab: 'overview', poll: null, sig: {}, exportPath: null,
   pending: { model: [], product: [], style: [] }, showStyle: false, template: null, filter: 'all', refStyle: localStorage.getItem('studio-ref') || 'en', copyTone: 'seed', copyTarget: 'douyin', copyBusy: false,
+  h3Res: '768P', h3Refs: false, h3Busy: null,
+  voices: null, voiceId: localStorage.getItem('studio-voice') || '', voiceBusy: false, finalBusy: false, finalVoice: true,
 };
 
 /* ───────── utils ───────── */
@@ -479,10 +481,14 @@ function onTime() {
 }
 
 /* tabs */
-const TABS = [['overview', '爆款拆解'], ['shots', '分镜'], ['libtv', 'LibTV 提示词'], ['copy', '带货文案'], ['assets', '素材与导出']];
+const TABS = [['overview', '爆款拆解'], ['shots', '分镜'], ['libtv', 'LibTV 提示词'], ['h3', 'H3 出片'], ['copy', '带货文案'], ['assets', '素材与导出']];
+const END_LABEL = { settled: '动作完成', ongoing: '仍在动', cutoff: '中途被切断', unknown: '看不清' };
+const H3_PENDING = ['submitting', 'submitted'];
+const h3Pending = job => Object.values(job.h3 || {}).some(e => H3_PENDING.includes(e.state));
 
 function renderTabs(job) {
-  const counts = { shots: job.shots.length || '', libtv: job.director?.segments.length ? `${job.director.segments.length}段` : '' };
+  const done = Object.values(job.h3 || {}).filter(e => e.state === 'succeeded').length;
+  const counts = { shots: job.shots.length || '', libtv: job.director?.segments.length ? `${job.director.segments.length}段` : '', h3: done ? `${done}片` : h3Pending(job) ? '生成中' : '' };
   $('#tabs').innerHTML = TABS.map(([id, label]) => `<button class="tab ${state.tab === id ? 'on' : ''}" data-tab="${id}">${label}${counts[id] ? `<small>${counts[id]}</small>` : ''}</button>`).join('');
   $('#tabs').querySelectorAll('.tab').forEach(b => { b.onclick = () => switchTab(job, b.dataset.tab); });
 }
@@ -495,7 +501,7 @@ function waiting(job, what) {
 }
 
 function renderTabBody(job) {
-  const sig = `${state.tab}|${job.director?.generatedAt || ''}|${job.shots.length}|${job.running}|${job.assets.map(a => a.file).join()}|${state.exportPath || ''}|${state.refStyle}|${state.copyTone}|${state.copyTarget}|${state.copyBusy}|${job.copy?.generatedAt || ''}|${job.brief?.notes ? 1 : 0}`;
+  const sig = `${state.tab}|${job.director?.generatedAt || ''}|${job.shots.length}|${job.running}|${job.assets.map(a => a.file).join()}|${state.exportPath || ''}|${state.refStyle}|${state.copyTone}|${state.copyTarget}|${state.copyBusy}|${job.copy?.generatedAt || ''}|${job.brief?.notes ? 1 : 0}|${JSON.stringify(Object.entries(job.h3 || {}).map(([k, e]) => [k, e.state, e.updatedAt]))}|${state.h3Res}|${state.h3Refs}|${state.h3Busy}|${state.health?.engines?.minimax?.ok}|${job.voice?.generatedAt || ''}|${job.final?.builtAt || ''}|${job.transcript?.transcribedAt || ''}|${state.voices?.length ?? -1}|${state.voiceId}|${state.voiceBusy}|${state.finalBusy}|${state.finalVoice}`;
   if (state.sig.tab === sig) return;
   state.sig.tab = sig;
   const body = $('#tabBody');
@@ -516,9 +522,10 @@ function renderTabBody(job) {
       <div class="panel rise" style="--i:2"><h4>剪辑节奏</h4><p>${esc(a.rhythm)}</p></div>
       <div class="panel rise" style="--i:3"><h4>画面风格</h4><p>${esc(a.visual_style)}</p></div>
       <div class="panel rise" style="--i:4"><h4>声音 / 口播</h4><p>${esc(a.audio_guess || '不确定')}</p></div>
+      ${job.transcript ? `<div class="panel wide rise" style="--i:5"><h4>原片口播 / 对白 · MOSI 转写</h4>${job.transcript.segments.length ? `<div class="lines">${job.transcript.segments.map(x => `<div class="line" data-t="${x.start}"><span class="tcode">${tc(x.start)}</span><b>${esc(x.speaker || '')}</b><p>${esc(x.text)}</p></div>`).join('')}</div>` : '<p>原片没有可识别的人声（可能只有音乐或环境声）。</p>'}</div>` : ''}
       <div class="whys">${(a.why_it_works || []).map((w, i) => `<div class="why rise" style="--i:${i + 5}">${esc(w)}</div>`).join('')}</div>
     </div>
-    <p class="foot-note">${esc(d.version || '')} · ${esc(d.model)} · ${new Date(d.generatedAt).toLocaleString('zh-CN', { hour12: false })}${d.usage ? ` · ${d.usage.prompt_tokens}+${d.usage.completion_tokens} tokens` : ''}${d.repaired ? ' · 已自动修正一次格式' : ''}</p>`;
+    <p class="foot-note">${job.transcript ? '口播已转写 · ' : ''}${esc(d.version || '')} · ${esc(d.model)} · ${new Date(d.generatedAt).toLocaleString('zh-CN', { hour12: false })}${d.usage ? ` · ${d.usage.prompt_tokens}+${d.usage.completion_tokens} tokens` : ''}${d.repaired ? ' · 已自动修正一次格式' : ''}</p>`;
   }
 
   if (state.tab === 'shots') {
@@ -532,6 +539,7 @@ function renderTabBody(job) {
           <div class="shot-top"><span class="tcode">${tc(s.start)} → ${tc(s.end)} · ${s.duration}s</span>
             <div class="chips">${x ? [x.shot_size, x.camera, x.transition].filter(Boolean).map(c => `<span class="chip">${esc(c)}</span>`).join('') : `<span class="chip">${s.cut === 'hard' ? '硬切' : '连续镜头'}</span>`}</div></div>
           ${x ? `<p class="desc"><b>${esc(x.subject)}</b> · ${esc(x.action)}　<span style="color:var(--muted)">${esc(x.scene)} · ${esc(x.lighting)}</span>${x.on_screen_text && x.on_screen_text !== '无' ? `<br>画面字：「${esc(x.on_screen_text)}」` : ''}</p>
+          ${Array.isArray(x.action_phases) ? `<p class="phases">${x.action_phases.map(esc).join('<i>→</i>')}${x.end_state ? `<span class="end ${esc(x.end_state)}">${END_LABEL[x.end_state] || esc(x.end_state)}</span>` : ''}${x.hidden_cut_at != null ? `<span class="end cutoff">${x.hidden_cut_at}s 处有漏检切点</span>` : ''}</p>` : ''}
           <div class="prompt">${promptHtml(p)}<button class="btn sm copy" data-copy="${esc(refText(p))}">${icon(I.copy)}复制</button></div>
           ${x.replace_note ? `<div class="note">${esc(x.replace_note)}</div>` : ''}` : '<p class="desc" style="color:var(--muted)">等待导演拆解…</p>'}
         </div></article>`;
@@ -573,6 +581,68 @@ function renderTabBody(job) {
     $('#goExport').onclick = () => switchTab(job, 'assets');
   }
 
+  if (state.tab === 'h3') {
+    if (!d) return void (body.innerHTML = waiting(job, '正在编译提示词'));
+    const list = job.h3Prompts || [];
+    if (!list.length || !d.shots?.some(s => s.h3_en)) return void (body.innerHTML = `<div class="waiting"><strong>这条拆解是旧版导演生成的，没有 H3 描述</strong>到「素材与导出」点「保存并重新编译提示词」即可生成（只花 DeepSeek token）。镜头切分也是旧的，要用新的切点就在上方把「镜头切分」重跑一次。</div>`);
+    const keyOk = state.health?.engines?.minimax?.ok;
+    const canRefs = job.assets.some(a => a.role === 'model' || a.role === 'product');
+    const all = list.map(s => `[Segment ${s.index} · ${s.target}s]\n${s.text}`).join('\n\n');
+    const STATE = { submitting: '正在提交…', submitted: '已提交，MiniMax 生成中（通常 3–6 分钟，可以离开页面）', succeeded: '已出片', failed: '生成失败', rejected: '提交被拒绝（没有创建任务，可以改好后再提交）', unknown: '提交结果不明：可能已创建任务并扣费，已停止，不会自动重试。请到 MiniMax 控制台核对。' };
+    const card = s => {
+      const e = job.h3?.[s.index];
+      const busy = state.h3Busy === s.index || H3_PENDING.includes(e?.state);
+      const again = Boolean(e && ['succeeded', 'failed'].includes(e.state));
+      const blocked = Boolean(e && ['unknown', 'submitting', 'submitted'].includes(e.state));
+      return `<article class="segment rise" style="--i:${s.index}">
+        <div class="segment-head"><h3>第 ${s.index} 段<span>原片 ${tc(s.start)} – ${tc(s.end)} · ${s.duration}s → 生成 ${s.target}s · ${s.shots} 个镜头</span></h3><button class="btn sm" data-seek="${s.start}">${icon(I.play)}预览原片</button></div>
+        ${e ? `<div class="h3-state ${esc(e.state)}">${busy ? '<div class="spinner sm"></div>' : ''}<b>${STATE[e.state] || esc(e.state)}</b>${e.taskId ? `<span class="tcode">任务号 ${esc(e.taskId)}</span>` : ''}${e.error ? `<p>${esc(e.error)}</p>` : ''}</div>` : ''}
+        ${e?.state === 'succeeded' ? `<div class="h3-videos">
+          ${e.compare ? `<figure><video src="${file(job.id, e.compare)}" controls playsinline preload="metadata"></video><figcaption>左：原片　右：H3 生成</figcaption></figure>` : ''}
+          <figure><video src="${file(job.id, e.video)}" controls playsinline preload="metadata"></video><figcaption>H3 成片 · <a href="${file(job.id, e.video)}" download>下载 mp4</a></figcaption></figure>
+        </div>` : ''}
+        <div class="body">
+          <div class="prompt"><span class="en-label">H3 · T2VA</span>\n${esc(s.text)}<button class="btn sm copy" data-copy="${esc(s.text)}">${icon(I.copy)}复制</button></div>
+          <div class="actions" style="margin-top:12px"><button class="btn ${again ? '' : 'primary'}" data-h3="${s.index}" data-sec="${s.target}" data-again="${again ? 1 : ''}" ${!keyOk || busy || blocked ? 'disabled' : ''}>${icon(I.spark)}${again ? '再生成一次（付费）' : '用 MiniMax H3 生成（付费）'}</button></div>
+        </div>
+      </article>`;
+    };
+    body.innerHTML = `
+      <div class="toolbar">
+        <span class="lbl">分辨率</span>
+        <div class="seg-ctl" id="h3Res">${['768P', '2K'].map(r => `<button data-v="${r}" class="${state.h3Res === r ? 'on' : ''}">${r}</button>`).join('')}</div>
+        <label class="check ${canRefs ? '' : 'off'}" title="${canRefs ? '把 @Image1 模特图和 @Image2 商品图作为参考图一起提交' : '先在「素材与导出」上传模特或商品图'}"><input type="checkbox" id="h3Refs" ${state.h3Refs && canRefs ? 'checked' : ''} ${canRefs ? '' : 'disabled'}>附带模特 / 商品图（实验）</label>
+        <span style="flex:1"></span>
+        <button class="btn primary" id="copyAllH3">${icon(I.copy)}复制全部</button>
+        <a class="btn" href="/api/jobs/${job.id}/h3.md">${icon(I.down)}下载 .md</a>
+      </div>
+      ${keyOk ? '' : `<div class="warnbox">没有配置 MiniMax Key，生成按钮不可用。可以复制提示词到 MiniMax 网页端手动生成；或在 apps/studio/.env.local 写 MINIMAX_API_KEY=（必须是按量付费的 Key，套餐类 sk-cp Key 会报余额不足），重启工作台后生效。</div>`}
+      <div class="next-step out"><b>04</b><div><strong>MiniMax H3：每段一次生成，直接出片</strong><p>提示词由导演逐镜看首 / 中 / 尾三帧取证后编译，镜头和切点时间都写在里面，不需要上传参考片段。每次生成都是真实扣费；同一段在生成中或结果不明时不会重复提交。<br>声音字段写 N/A 表示没有核听、不是静音；H3 会自己配一条音轨，商用请换成有授权的配乐。${state.h3Refs && canRefs ? '<br><b>附带参考图是实验功能</b>：人物和商品能不能换成你的，要看这次生成的效果。' : ''}</p></div></div>
+      ${finalBlock(job, list)}
+      ${list.map(card).join('')}`;
+    bindFinal(job, body);
+    body.querySelectorAll('#h3Res button').forEach(b => { b.onclick = () => { state.h3Res = b.dataset.v; state.sig.tab = null; renderTabBody(job); }; });
+    const refsBox = $('#h3Refs');
+    if (refsBox) refsBox.onchange = () => { state.h3Refs = refsBox.checked; state.sig.tab = null; renderTabBody(job); };
+    $('#copyAllH3').onclick = () => copy(all);
+    body.querySelectorAll('[data-seek]').forEach(b => { b.onclick = () => seek(Number(b.dataset.seek)); });
+    body.querySelectorAll('[data-h3]').forEach(b => {
+      b.onclick = async () => {
+        const segment = Number(b.dataset.h3), seconds = Number(b.dataset.sec), again = Boolean(b.dataset.again);
+        const refs = state.h3Refs && canRefs;
+        const ok = window.confirm(`确认提交 1 次 MiniMax H3 付费生成？\n\n第 ${segment} 段 · ${seconds} 秒 · ${state.h3Res}${refs ? ' · 附带模特 / 商品图' : ''}${again ? '\n（这一段已有结果，这次会再生成一条新的）' : ''}\n\n会产生真实费用，按你的 MiniMax 账户计费；提交后不能取消。`);
+        if (!ok) return;
+        state.h3Busy = segment; state.sig.tab = null; renderTabBody(job);
+        try {
+          await api(`/api/jobs/${job.id}/h3`, { method: 'POST', json: { segment, seconds, confirm: true, resolution: state.h3Res, withRefs: refs, again } });
+          toast(`第 ${segment} 段已提交，后台生成中`);
+        } catch (err) { toast(err.message, true); }
+        state.h3Busy = null; state.sig.tab = null;
+        await refreshJob(job.id).catch(() => {});
+      };
+    });
+  }
+
   if (state.tab === 'copy') {
     if (!d) return void (body.innerHTML = waiting(job, '拆解完成后才能写文案'));
     const c = job.copy;
@@ -601,6 +671,7 @@ function renderTabBody(job) {
           <div class="vo-head"><b>段 ${v.segment}</b><span class="tcode">${tc(v.start)} – ${tc(v.end)}</span><span class="meter"><i style="width:${Math.min(n / lim, 1) * 100}%" class="${n > lim ? 'over' : ''}"></i></span><span class="cnt ${n > lim ? 'over' : ''}">${n}/${lim} 字</span>${copyBtn(v.text)}</div>
           <p>${esc(v.text)}</p></div>`; }).join('')}
       </div>
+      ${voiceBlock(job)}
       <div class="panel rise" style="margin-top:14px"><h4>画面字幕 · 逐镜头 <button class="btn sm" id="copyCaps" style="margin-left:8px">${icon(I.copy)}复制全部 SRT</button></h4>
         <div class="caps">${c.captions.map(x => { const s = job.shots.find(y => y.index === x.shot); return `<div class="cap" data-t="${x.start}"><img src="${file(job.id, s?.keyframe)}" alt=""><div><span class="tcode">${tc(x.start)}</span><p>${esc(x.text)}</p></div></div>`; }).join('')}</div>
       </div>
@@ -619,6 +690,7 @@ function renderTabBody(job) {
       catch (err) { toast(err.message, true); }
       state.copyBusy = false; state.sig.tab = null; renderTabBody(job);
     };
+    bindVoice(job, body);
     if (c) $('#copyCaps').onclick = () => {
       const srt = t => { const h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = Math.floor(t % 60), ms = Math.round((t % 1) * 1000); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`; };
       copy(c.captions.map((x, i) => `${i + 1}\n${srt(x.start)} --> ${srt(x.end)}\n${x.text}\n`).join('\n'));
@@ -666,6 +738,7 @@ function renderTabBody(job) {
     $('#open').onclick = () => api(`/api/jobs/${job.id}/open`, { method: 'POST' }).catch(err => toast(err.message, true));
   }
   body.querySelectorAll('[data-goto]').forEach(b => { b.onclick = () => switchTab(job, b.dataset.goto); });
+  body.querySelectorAll('.line[data-t]').forEach(el => { el.onclick = () => seek(Number(el.dataset.t)); });
   body.querySelectorAll('[data-copy]').forEach(btn => {
     btn.onclick = e => {
       e.stopPropagation();
@@ -675,6 +748,83 @@ function renderTabBody(job) {
       setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = html; }, 1400);
     };
   });
+}
+
+/* voice-over (MOSI) and the final cut */
+async function loadVoices() {
+  try { state.voices = await api('/api/moss/voices'); }
+  catch (err) { state.voices = []; toast(err.message, true); }
+  if (state.job) { state.sig.tab = null; renderTabBody(state.job); }
+}
+
+function voiceBlock(job) {
+  const c = job.copy;
+  if (!c) return '';
+  if (!state.health?.engines?.moss?.ok) return `<div class="panel rise" style="margin-top:14px"><h4>配音 · MOSI</h4><p class="muted">没有配置 MOSI Key。在 apps/studio/.env.local 写 MOSS_API_KEY=，重启工作台后可以一键把口播脚本配成语音。</p></div>`;
+  if (state.voices === null) { state.voices = undefined; loadVoices(); }
+  const voices = state.voices || [];
+  const v = job.voice;
+  if (!state.voiceId && v?.voiceId) state.voiceId = v.voiceId; // default to the voice this job already used
+  const stale = v && v.copyAt !== c.generatedAt;
+  const cost = ((job.voiceChars || 0) / 10000 * 2).toFixed(3);
+  return `<div class="panel rise" style="margin-top:14px"><h4>配音 · MOSI（按每段时长生成）</h4>
+    <div class="voice-bar">
+      <select id="voicePick" ${voices.length ? '' : 'disabled'}>${voices.length ? voices.map(x => `<option value="${esc(x.id)}" ${x.id === state.voiceId ? 'selected' : ''}>${esc(x.name)}</option>`).join('') : `<option>${state.voices === undefined ? '正在读取音色…' : '账号里还没有音色，先到 MOSI 平台设计或克隆一个'}</option>`}</select>
+      <button class="btn primary" id="genVoice" ${voices.length && !state.voiceBusy ? '' : 'disabled'}>${icon(I.spark)}${state.voiceBusy ? '正在配音…' : v ? '重新配音' : '生成配音'}</button>
+      <span class="path">${job.voiceChars || 0} 字 · 约 ¥${cost}（MOSI ¥2 / 万字）</span>
+    </div>
+    ${stale ? '<div class="warnbox" style="margin-top:10px">文案已经重新生成，下面的配音还是旧稿，重新配音后再合成。</div>' : ''}
+    ${v ? `<div class="vo-clips">${v.items.map(x => `<div class="vo-clip"><b>段 ${x.segment}</b><audio src="${file(job.id, x.file)}" controls preload="none"></audio><span class="cnt ${x.actual > x.duration ? 'over' : ''}">${x.actual}s / ${x.duration}s</span></div>`).join('')}</div><p class="foot-note">音色 ${esc(v.voiceName || v.voiceId)} · ${esc(v.language)} · ${new Date(v.generatedAt).toLocaleString('zh-CN', { hour12: false })}</p>` : ''}
+  </div>`;
+}
+
+function bindVoice(job, body) {
+  const pick = body.querySelector('#voicePick');
+  if (pick) {
+    if (!state.voiceId && pick.value) state.voiceId = pick.value;
+    pick.onchange = () => { state.voiceId = pick.value; localStorage.setItem('studio-voice', pick.value); };
+  }
+  const btn = body.querySelector('#genVoice');
+  if (btn) btn.onclick = async () => {
+    const voice = (state.voices || []).find(x => x.id === (pick?.value || state.voiceId));
+    if (!voice) return toast('先选一个音色', true);
+    state.voiceBusy = true; state.sig.tab = null; renderTabBody(job);
+    try { job.voice = await api(`/api/jobs/${job.id}/voice`, { method: 'POST', json: { voiceId: voice.id, voiceName: voice.name } }); toast('配音完成'); }
+    catch (err) { toast(err.message, true); }
+    state.voiceBusy = false; state.sig.tab = null;
+    await refreshJob(job.id).catch(() => {});
+  };
+}
+
+function finalBlock(job, list) {
+  const ready = list.length && list.every(s => job.h3?.[s.index]?.state === 'succeeded');
+  if (!ready) return '';
+  const f = job.final;
+  const canVoice = Boolean(job.voice?.items?.length);
+  return `<div class="panel final-cut rise"><h4>完整成片 · ${list.length} 段拼接${canVoice ? ' + 配音' : ''}</h4>
+    <div class="toolbar" style="margin:8px 0 0">
+      <label class="check ${canVoice ? '' : 'off'}" title="${canVoice ? '配音在上，H3 自带声音压低作底' : '先在「带货文案」生成配音'}"><input type="checkbox" id="finalVoice" ${state.finalVoice && canVoice ? 'checked' : ''} ${canVoice ? '' : 'disabled'}>叠加配音</label>
+      <span style="flex:1"></span>
+      <button class="btn primary" id="buildFinal" ${state.finalBusy ? 'disabled' : ''}>${icon(I.film)}${state.finalBusy ? '正在合成…' : f ? '重新合成' : '合成完整成片'}</button>
+    </div>
+    ${f ? `<div class="h3-videos" style="margin:12px 0 0">
+      <figure><video src="${file(job.id, f.compare)}" controls playsinline preload="metadata"></video><figcaption>左：原片　右：成片</figcaption></figure>
+      <figure><video src="${file(job.id, f.video)}" controls playsinline preload="metadata"></video><figcaption>${f.duration}s${f.voiced ? ` · 配音 ${esc(f.voiceName || '')}` : ''} · <a href="${file(job.id, f.video)}" download>下载 mp4</a>${f.srt ? ` · <a href="${file(job.id, f.srt)}" download>字幕 .srt</a>` : ''}</figcaption></figure>
+    </div>` : '<p class="path" style="margin-top:8px">只在本机剪辑拼接，不产生费用。</p>'}
+  </div>`;
+}
+
+function bindFinal(job, body) {
+  const box = body.querySelector('#finalVoice');
+  if (box) box.onchange = () => { state.finalVoice = box.checked; };
+  const btn = body.querySelector('#buildFinal');
+  if (btn) btn.onclick = async () => {
+    state.finalBusy = true; state.sig.tab = null; renderTabBody(job);
+    try { job.final = await api(`/api/jobs/${job.id}/final`, { method: 'POST', json: { withVoice: state.finalVoice && Boolean(job.voice?.items?.length) } }); toast('完整成片已合成'); }
+    catch (err) { toast(err.message, true); }
+    state.finalBusy = false; state.sig.tab = null;
+    await refreshJob(job.id).catch(() => {});
+  };
 }
 
 async function uploadAsset(job, role, f) {
@@ -705,6 +855,7 @@ async function refreshJob(id) {
   renderTabBody(job);
   clearTimeout(state.poll);
   if (job.running) state.poll = setTimeout(() => refreshJob(id).catch(() => {}), 1500);
+  else if (h3Pending(job)) state.poll = setTimeout(() => refreshJob(id).catch(() => {}), 5000);
   else if (prev?.running) loadJobs();
 }
 

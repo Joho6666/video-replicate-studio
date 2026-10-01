@@ -4,6 +4,7 @@ import { jobDir } from './jobs.mjs';
 import { cutClip } from './media.mjs';
 import { copyMarkdown } from './copywriter.mjs';
 import { refMap } from './refs.mjs';
+import { h3Markdown } from './h3.mjs';
 
 const tc = s => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 
@@ -23,6 +24,7 @@ const ROLE_NAME = { model: '模特', product: '衣服商品', style: '效果参�
 const assetName = (r, style) => `${refToken(r.token, style).replace(/[@\s]/g, '')}_${ROLE_NAME[r.role]}${path.extname(r.file || '.jpg')}`;
 
 const segPrompt = s => s.prompt_en ?? s.prompt ?? '';
+export const END_LABEL = { settled: '动作完成', ongoing: '仍在动', cutoff: '中途被切断', unknown: '看不清' };
 
 export function libtvMarkdown(job, style = 'en') {
   const d = job.director;
@@ -64,12 +66,13 @@ export function shotTableMarkdown(job, style = 'en') {
     `- **声音**：${a.audio_guess || '不确定'}`,
     ...(a.why_it_works || []).map(x => `- **爆点**：${x}`),
     '', '# 分镜表', '',
-    '| # | 时间 | 景别 | 运镜 | 画面 | 替换 | Prompt |', '| :-: | :-- | :-- | :-- | :-- | :-- | :-- |',
+    '| # | 时间 | 景别 | 运镜 | 画面 | 动作过程 → 结束状态 | 替换 | Prompt |', '| :-: | :-- | :-- | :-- | :-- | :-- | :-- | :-- |',
   ];
   job.shots.forEach((shot, i) => {
     const s = d.shots[i] || {};
     const cell = v => String(v ?? '').replace(/\|/g, '/').replace(/\n/g, ' ');
-    lines.push(`| ${shot.index} | ${tc(shot.start)}–${tc(shot.end)} | ${cell(s.shot_size)} | ${cell(s.camera)} | ${cell(`${s.subject || ''}，${s.action || ''}`)} | ${cell(s.replace_note)} | ${cell(applyRefs(s.prompt_en ?? s.prompt, style))} |`);
+    const phases = Array.isArray(s.action_phases) ? `${s.action_phases.join(' → ')}${s.end_state ? `（${END_LABEL[s.end_state] || s.end_state}）` : ''}${s.hidden_cut_at != null ? `；${s.hidden_cut_at}s 处有漏检切点` : ''}` : '';
+    lines.push(`| ${shot.index} | ${tc(shot.start)}–${tc(shot.end)} | ${cell(s.shot_size)} | ${cell(s.camera)} | ${cell(`${s.subject || ''}，${s.action || ''}`)} | ${cell(phases)} | ${cell(s.replace_note)} | ${cell(applyRefs(s.prompt_en ?? s.prompt, style))} |`);
   });
   return lines.join('\n');
 }
@@ -89,6 +92,7 @@ export async function buildExport(job, style = 'en') {
     for (const r of refs) await copyFile(path.join(root, r.file), path.join(out, '替换素材', assetName(r, style)));
   }
   await writeFile(path.join(out, 'LibTV提示词.md'), libtvMarkdown(job, style));
+  if (job.director.shots?.some(s => s.h3_en)) await writeFile(path.join(out, 'H3提示词.md'), h3Markdown(job));
   await writeFile(path.join(out, '分镜拆解.md'), shotTableMarkdown(job, style));
   if (job.copy) await writeFile(path.join(out, '带货文案.md'), copyMarkdown(job));
   await writeFile(path.join(out, 'director.json'), JSON.stringify({ source: job.source, meta: job.meta, media: job.media, shots: job.shots, director: job.director }, null, 2));

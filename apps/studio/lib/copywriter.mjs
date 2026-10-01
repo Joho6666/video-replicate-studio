@@ -1,4 +1,5 @@
 import { config } from './env.mjs';
+import { transcriptLines } from './moss.mjs';
 
 export const TONES = { seed: '种草', review: '测评', promo: '促销', story: '剧情' };
 export const TARGETS = { douyin: '抖音', xhs: '小红书', channels: '视频号', tiktok: 'TikTok' };
@@ -16,7 +17,7 @@ const SYSTEM = `你是国内一线电商短视频文案策划，擅长把爆款�
 2. 遵守《广告法》：不用"最、第一、顶级、极致、唯一、全网、100%、永久"等绝对化用语，不写医疗功效。
 3. 口播脚本严格按给定的每段时长控制字数（每秒约 ${CHARS_PER_SEC} 个字），念不完就删。
 4. 画面字幕每条 ≤${CAPTION_MAX} 个字，与该镜头画面对应，是口播的提炼而不是复述。
-5. 结构沿用参考视频的钩子与节奏（见拆解），但内容全部换成新商品。
+5. 结构沿用参考视频的钩子与节奏（见拆解）；有原片口播转写时，参照它的话术结构、句子长短和说话时机来写，但内容全部换成新商品，不照抄原句。
 6. 平台为 TikTok 时全部用英文，其余平台用简体中文。
 只输出 JSON。`;
 
@@ -101,6 +102,7 @@ export async function runCopywriter(job, { tone = 'seed', target = 'douyin' } = 
     '',
     `参考视频原文案：${(job.meta.title || '').slice(0, 300)}`,
     `参考拆解 —— 钩子：${d.analysis.hook}；结构：${d.analysis.structure}；节奏：${d.analysis.rhythm}；声音：${d.analysis.audio_guess || '不确定'}`,
+    ...(job.transcript?.segments?.length ? ['原片口播 / 对白转写（秒）：', ...transcriptLines(job.transcript).map(l => `  ${l}`)] : []),
     '',
     '生成分段（口播按此计时）：',
     ...d.segments.map((s, i) => `  段${s.index}：${s.duration}s，最多 ${Math.floor(s.duration * CHARS_PER_SEC)} 字；画面：${s.note_zh || ''}`),

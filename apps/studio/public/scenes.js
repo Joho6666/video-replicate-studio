@@ -11,30 +11,53 @@ const lerp = (a, b, t) => a + (b - a) * t;
 
 /* ───────────────────────── light scene: golden-hour valley ───────────────────────── */
 
-// Painterly cloud: a cluster of soft overlapping ellipses (brushstroke feel) rather than
-// one blurred blob, each cluster warmed on its underside by the low sun.
-function paintCloud(r, cx, cy, scale, delay) {
-  const puffs = 5 + Math.floor(r() * 3);
-  let out = `<g class="cloud scene-macro fx-heavy" filter="url(#cloudSoft)" style="--motion-delay:${delay}s">`;
-  for (let i = 0; i < puffs; i++) {
-    const px = cx + (r() - 0.5) * 130 * scale;
-    const py = cy + (r() - 0.5) * 30 * scale - i * 1.5;
-    const rx = (34 + r() * 30) * scale, ry = rx * (0.42 + r() * 0.12);
-    out += `<ellipse cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" rx="${rx.toFixed(1)}" ry="${ry.toFixed(1)}" fill="url(#cloudLit)"/>`;
-  }
-  return out + `</g>`;
+// Birds stay as silhouettes — at this distance a real bird is only a dark chevron, so vector
+// reads as photographic. A small flock crosses the valley now and then; each bird flaps on
+// its own rhythm so the group never moves like one stamped shape.
+const BIRD = 'M-10 0 Q-5 -5.5 0 0 Q5 -5.5 10 0';
+function flock() {
+  const r = rng(577);
+  const slots = [[0, 0], [-26, -9], [-24, 11], [-52, -17], [-50, 19], [-80, -25], [-74, 4]];
+  const birds = slots.map(([dx, dy], i) => {
+    const s = (0.9 + r() * 0.5).toFixed(2);
+    return `<g transform="translate(${dx + (r() - 0.5) * 8} ${dy + (r() - 0.5) * 6}) scale(${s})"><g class="bird-bob" style="--motion-delay:${(-r() * 3).toFixed(2)}s"><path class="bird-flap" d="${BIRD}" style="--flap:${(0.52 + r() * 0.2).toFixed(2)}s;--motion-delay:${(-r()).toFixed(2)}s"/></g></g>`;
+  }).join('');
+  return `<g class="flock scene-micro" fill="none" stroke="#3b2c28" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" opacity=".62">${birds}</g>`;
+}
+function gliders() {
+  return [[330, 250, .55, -3], [1180, 230, .42, -11]].map(([x, y, s, d]) =>
+    `<g transform="translate(${x} ${y}) scale(${s})"><g class="glider" style="--motion-delay:${d}s"><path d="${BIRD}" fill="none" stroke="#4a3a34" stroke-width="2" stroke-linecap="round" opacity=".5"/></g></g>`).join('');
 }
 
-function clouds() {
-  const r = rng(303);
-  const spots = [[260, 145, 1, -4], [640, 95, .8, -22], [980, 150, 1.15, -46], [1330, 110, .75, -11], [1520, 175, .6, -33]];
-  return spots.map(([x, y, s, d]) => paintCloud(r, x, y, s, d)).join('');
-}
-
-// Simple double-stroke chevrons — a classic landscape-painting device for scale and depth.
-function birds() {
-  const set = [[420, 210, 1, .55], [468, 195, .8, .5], [1180, 165, .7, .45]];
-  return set.map(([x, y, s, o]) => `<path class="bird" d="M${x} ${y} q${9 * s} -7 ${18 * s} 0 q${9 * s} -7 ${18 * s} 0" stroke="#5a4a42" stroke-width="${1.6 * s}" fill="none" stroke-linecap="round" opacity="${o}"/>`).join('');
+// Lens flare: ghosts sit on the line from the sun through frame centre, like a real lens.
+// Each carries a different parallax depth (some negative), so they slide along that line
+// against the pointer exactly the way optical ghosts do.
+function lensFlare() {
+  const sun = [1450, 344], c = [800, 500];
+  const at = t => [sun[0] + (c[0] - sun[0]) * t, sun[1] + (c[1] - sun[1]) * t];
+  const hex = (x, y, rad) => Array.from({ length: 6 }, (_, i) => {
+    const a = Math.PI / 6 + i * Math.PI / 3;
+    return `${(x + Math.cos(a) * rad).toFixed(1)},${(y + Math.sin(a) * rad).toFixed(1)}`;
+  }).join(' ');
+  const ghosts = [
+    [0.42, 14, 'hex', '#ffd79a', .22, 5],
+    [0.78, 34, 'disc', '#ffc6a0', .1, -4],
+    [1.12, 22, 'hex', '#b9e0d6', .13, -12],
+    [1.55, 58, 'ring', '#ffd9b0', .12, -20],
+    [1.9, 16, 'disc', '#f4b3c2', .14, -28],
+  ];
+  const g = ghosts.map(([t, rad, kind, col, op, depth]) => {
+    const [x, y] = at(t);
+    const shape = kind === 'hex' ? `<polygon points="${hex(x, y, rad)}" fill="${col}"/>`
+      : kind === 'ring' ? `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${rad}" fill="none" stroke="${col}" stroke-width="3"/>`
+      : `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${rad}" fill="${col}" fill-opacity=".4" stroke="${col}" stroke-opacity=".8" stroke-width="1.5"/>`;
+    return `<g class="px" data-depth="${depth}" opacity="${op}">${shape}</g>`;
+  }).join('');
+  return `<g class="lens-flare scene-macro" style="mix-blend-mode:screen">
+    <ellipse class="flare-streak" cx="${sun[0]}" cy="${sun[1]}" rx="560" ry="2.6" fill="url(#flareStreak)"/>
+    <circle cx="${sun[0]}" cy="${sun[1]}" r="46" fill="url(#flareCore)"/>
+    ${g}
+  </g>`;
 }
 
 // Curated sunset-adjacent palette (terracotta / dusty rose / plum / cream / sage) instead of
@@ -150,35 +173,23 @@ function farTreeline() {
   return `<path d="${d}" stroke="#8f8aa8" stroke-width="3" fill="none" opacity=".5"/><path d="${d2}" stroke="#8f8aa8" stroke-width="3" fill="none" opacity=".5"/>`;
 }
 
-// A restrained foreground pass keeps the photographic base alive without covering its
-// detailed meadow. Stems are split by depth so the wind reads as a soft wave instead of
-// one synchronized transform across the whole flower field.
-function valleyStemLayer(r, count, yMin, yMax, hMin, hMax, layerClass) {
-  const petals = ['#fff4df', '#f6b06a', '#d58bb5', '#f8d76f'];
-  let out = `<g class="valley-stems ${layerClass} scene-micro">`;
-  for (let i = 0; i < count; i++) {
-    const x = r() * 1600;
-    const y = yMin + r() * (yMax - yMin);
-    const h = hMin + r() * (hMax - hMin);
-    const bend = (r() - 0.5) * (layerClass === 'valley-stems-near' ? 38 : 26);
-    const topX = x + bend;
-    const topY = y - h;
-    const delay = (-r() * 9).toFixed(2);
-    const color = petals[Math.floor(r() * petals.length)];
-    out += `<path class="valley-stem scene-micro" d="M${x.toFixed(1)} ${y.toFixed(1)} Q${(x + bend * .4).toFixed(1)} ${(y - h * .52).toFixed(1)} ${topX.toFixed(1)} ${topY.toFixed(1)}" stroke="#344c25" stroke-width="${(0.8 + r() * 1.2).toFixed(1)}" fill="none" opacity="${(0.34 + r() * .36).toFixed(2)}" style="--motion-delay:${delay}s"/>`;
-    if (r() > (layerClass === 'valley-stems-near' ? .18 : .3)) {
-      const size = 2 + r() * (layerClass === 'valley-stems-near' ? 4.2 : 3.2);
-      out += `<circle class="valley-petal spark scene-micro" cx="${topX.toFixed(1)}" cy="${topY.toFixed(1)}" r="${size.toFixed(1)}" fill="${color}" opacity="${(0.46 + r() * .4).toFixed(2)}" style="--motion-delay:${delay}s"/>`;
-    }
-  }
-  return out + '</g>';
-}
 
-function valleyStems() {
-  const r = rng(419);
-  return valleyStemLayer(r, 28, 952, 990, 24, 54, 'valley-stems-far')
-    + valleyStemLayer(r, 22, 980, 1010, 42, 82, 'valley-stems-mid')
-    + valleyStemLayer(r, 12, 1000, 1030, 72, 132, 'valley-stems-near');
+// Backlit pollen: tiny warm specks drifting up through the sun side of the valley. Radial
+// fills (not blur filters) keep this cheap enough to run on every frame.
+function pollen() {
+  const r = rng(733);
+  let out = '';
+  for (let i = 0; i < 46; i++) {
+    const nearSun = r() > 0.35;
+    const x = nearSun ? 780 + r() * 820 : r() * 1600;
+    const y = 420 + r() * 520;
+    const rad = 0.9 + Math.pow(r(), 2.4) * 3.6;
+    const dur = (14 + r() * 16).toFixed(1);
+    const dx = ((r() - 0.3) * 90).toFixed(0);
+    const dy = (-(60 + r() * 140)).toFixed(0);
+    out += `<circle class="pollen scene-micro" cx="${x.toFixed(0)}" cy="${y.toFixed(0)}" r="${rad.toFixed(1)}" fill="url(#pollenDot)" style="--motion-delay:${(-r() * 30).toFixed(1)}s;--d:${dur}s;--dx:${dx}px;--dy:${dy}px;--o:${(0.45 + r() * 0.5).toFixed(2)}"/>`;
+  }
+  return out;
 }
 
 export const lightScene = () => `
@@ -194,10 +205,30 @@ export const lightScene = () => `
     </linearGradient>
     <radialGradient id="valleyTextLift" cx=".5" cy=".43" r=".5"><stop offset="0" stop-color="#fff4df" stop-opacity=".22"/><stop offset=".6" stop-color="#fff4df" stop-opacity=".06"/><stop offset="1" stop-color="#fff4df" stop-opacity="0"/></radialGradient>
     <radialGradient id="valleyVignette" cx=".5" cy=".42" r=".78"><stop offset=".58" stop-color="#0d120b" stop-opacity="0"/><stop offset="1" stop-color="#10150c" stop-opacity=".38"/></radialGradient>
-    <linearGradient id="cloudLit" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff8ef"/><stop offset="1" stop-color="#f3c9a6"/></linearGradient>
-    <filter id="cloudSoft" x="-60%" y="-200%" width="220%" height="500%"><feGaussianBlur stdDeviation="8"/></filter>
+    <radialGradient id="flareCore"><stop offset="0" stop-color="#fffdf3"/><stop offset=".25" stop-color="#fff1c8" stop-opacity=".7"/><stop offset="1" stop-color="#ffd48a" stop-opacity="0"/></radialGradient>
+    <linearGradient id="flareStreak" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffe7b8" stop-opacity="0"/><stop offset=".5" stop-color="#fff6de" stop-opacity=".85"/><stop offset="1" stop-color="#ffe7b8" stop-opacity="0"/></linearGradient>
     <filter id="valleyRayBlur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="18"/></filter>
     <filter id="valleyHazeBlur" x="-20%" y="-30%" width="140%" height="160%"><feGaussianBlur stdDeviation="22"/></filter>
+    <filter id="meadowWind" x="-4%" y="-10%" width="108%" height="120%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency=".006 .022" numOctaves="2" seed="7" result="noise"/>
+      <feOffset in="noise" dx="0" dy="0" result="wind">
+        <animate attributeName="dx" values="0;-140;-40;-180;0" keyTimes="0;.3;.5;.8;1" dur="26s" repeatCount="indefinite" calcMode="spline" keySplines=".45 0 .55 1;.45 0 .55 1;.45 0 .55 1;.45 0 .55 1"/>
+      </feOffset>
+      <feDisplacementMap in="SourceGraphic" in2="wind" scale="10" xChannelSelector="R" yChannelSelector="G">
+        <animate attributeName="scale" values="6;15;8;13;6" dur="11s" repeatCount="indefinite" calcMode="spline" keySplines=".45 0 .55 1;.45 0 .55 1;.45 0 .55 1;.45 0 .55 1"/>
+      </feDisplacementMap>
+    </filter>
+    <linearGradient id="meadowFadeG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".22" stop-color="#fff"/><stop offset="1" stop-color="#fff"/></linearGradient>
+    <mask id="meadowMask" maskUnits="userSpaceOnUse" x="-40" y="700" width="1680" height="340"><rect x="-40" y="700" width="1680" height="340" fill="url(#meadowFadeG)"/></mask>
+    <radialGradient id="pollenDot"><stop offset="0" stop-color="#fffbe8"/><stop offset=".35" stop-color="#ffe2a0" stop-opacity=".75"/><stop offset="1" stop-color="#ffc774" stop-opacity="0"/></radialGradient>
+    <linearGradient id="gustG" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff2cf" stop-opacity="0"/><stop offset=".5" stop-color="#fff2cf" stop-opacity=".9"/><stop offset="1" stop-color="#fff2cf" stop-opacity="0"/></linearGradient>
+    <!-- Sky-only mask: traces the cloud band with a wide margin off the rock face and ridges,
+         so the drifting copies never drag solid terrain along with them. -->
+    <!-- Feathered by stacking translucent strokes instead of a blur filter: same soft edge,
+         but nothing to re-filter every frame while the copies move underneath. -->
+    <mask id="skyMask" maskUnits="userSpaceOnUse" x="-80" y="-80" width="1760" height="480">
+      <polygon points="-60,-60 1660,-60 1660,245 1500,265 1300,285 900,295 610,285 520,245 450,165 360,88 270,34 -60,18" fill="#fff" fill-opacity="1" stroke="#fff" stroke-opacity=".3" stroke-width="4" stroke-linejoin="round"/><polygon points="-60,-60 1660,-60 1660,245 1500,265 1300,285 900,295 610,285 520,245 450,165 360,88 270,34 -60,18" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width="16" stroke-linejoin="round"/><polygon points="-60,-60 1660,-60 1660,245 1500,265 1300,285 900,295 610,285 520,245 450,165 360,88 270,34 -60,18" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width="28" stroke-linejoin="round"/><polygon points="-60,-60 1660,-60 1660,245 1500,265 1300,285 900,295 610,285 520,245 450,165 360,88 270,34 -60,18" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width="40" stroke-linejoin="round"/><polygon points="-60,-60 1660,-60 1660,245 1500,265 1300,285 900,295 610,285 520,245 450,165 360,88 270,34 -60,18" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width="52" stroke-linejoin="round"/>
+    </mask>
   </defs>
 
   <!-- The photographic base carries the mountain and meadow detail. SVG remains responsible
@@ -205,6 +236,17 @@ export const lightScene = () => `
   <g class="px scene-macro valley-base" data-depth="2">
     <g class="valley-base-drift">
       <image href="/assets/hero-valley-golden.webp" x="-18" y="-12" width="1636" height="1024" preserveAspectRatio="xMidYMid slice"/>
+      <!-- Cinemagraph clouds: two copies of the sky slide left and cross-fade half a cycle
+           apart, so the photo's own clouds drift continuously without a visible loop point. -->
+      <g class="sky-flow-wrap" mask="url(#skyMask)">
+        <g class="sky-flow sky-flow-a"><image href="/assets/hero-valley-golden.webp" x="-18" y="-12" width="1636" height="1024" preserveAspectRatio="xMidYMid slice"/></g>
+        <g class="sky-flow sky-flow-b"><image href="/assets/hero-valley-golden.webp" x="-18" y="-12" width="1636" height="1024" preserveAspectRatio="xMidYMid slice"/></g>
+      </g>
+      <!-- Same photo, masked to the flower field and pushed through animated noise, so the
+           real flowers ripple in the wind instead of vector stand-ins doing the work. -->
+      <g class="meadow-wind fx-heavy" mask="url(#meadowMask)">
+        <image href="/assets/hero-valley-golden.webp" x="-18" y="-12" width="1636" height="1024" preserveAspectRatio="xMidYMid slice" filter="url(#meadowWind)"/>
+      </g>
     </g>
   </g>
 
@@ -218,11 +260,12 @@ export const lightScene = () => `
     </g>
   </g>
 
-  <rect width="1600" height="1000" fill="url(#valleySunGlow)"/>
+  <rect class="sun-breath" width="1600" height="1000" fill="url(#valleySunGlow)"/>
+  ${lensFlare()}
   <rect y="390" width="1600" height="470" fill="url(#valleyHorizonHaze)"/>
 
-  <g class="px scene-macro valley-clouds" data-depth="5" opacity=".13">${clouds()}</g>
-  <g class="px scene-micro" data-depth="4" opacity=".42">${birds()}</g>
+  <g class="px scene-micro" data-depth="4">${gliders()}</g>
+  <g class="px scene-micro" data-depth="6"><g class="flock-path">${flock()}</g></g>
 
   <!-- Haze layer follows the far valley and moves less than the foreground. -->
   <g class="px scene-macro valley-mist valley-mist-a fx-heavy" data-depth="7" opacity=".36" filter="url(#valleyHazeBlur)">
@@ -237,13 +280,14 @@ export const lightScene = () => `
     </g>
   </g>
 
+  <!-- A band of warm light rolls across the meadow, reading as a gust bending the grass. -->
+  <g class="px scene-macro" data-depth="18" style="mix-blend-mode:soft-light">
+    <rect class="meadow-gust" x="-700" y="760" width="620" height="260" fill="url(#gustG)"/>
+  </g>
+  <g class="px scene-micro" data-depth="12">${pollen()}</g>
+
   <!-- Center lift keeps black headline text readable while leaving the landscape visible. -->
   <rect class="valley-text-lift" width="1600" height="1000" fill="url(#valleyTextLift)"/>
-
-  <!-- Sparse animated stems add a living foreground pass over the already detailed flowers. -->
-  <g class="px scene-micro" data-depth="30">
-    <g class="sway scene-micro">${valleyStems()}</g>
-  </g>
 
   <rect width="1600" height="1000" fill="url(#valleyVignette)"/>
 </svg>`;

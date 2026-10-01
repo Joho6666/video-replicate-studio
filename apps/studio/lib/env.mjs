@@ -57,4 +57,8 @@ export const config = {
   analyzeMaxSec: Math.min(Math.max(Number(env.ANALYZE_MAX_SEC || 60), 10), 180),
   deepseek: { key: env.DEEPSEEK_API_KEY || '', base: (env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, ''), model: env.DEEPSEEK_MODEL || 'deepseek-flash' },
   tikhub: { key: env.TIKHUB_API_KEY || '', base: (env.TIKHUB_BASE_URL || 'https://api.tikhub.io').replace(/\/$/, '') },
+  // H3 needs a pay-as-you-go key; mainland accounts use api.minimaxi.com, global ones api.minimax.io.
+  minimax: { key: env.MINIMAX_API_KEY || '', base: (env.MINIMAX_BASE_URL || 'https://api.minimaxi.com').replace(/\/$/, ''), model: env.MINIMAX_VIDEO_MODEL || 'MiniMax-H3' },
+  // MOSI (模思智能): soundtrack transcription and timed voice-over.
+  moss: { key: env.MOSS_API_KEY || '', base: (env.MOSS_BASE_URL || 'https://api.mosi.cn').replace(/\/$/, ''), ttsModel: env.MOSS_TTS_MODEL || 'moss-tts-1.5-flash' },
 };

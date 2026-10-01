@@ -166,10 +166,29 @@ img { display: block; }
 /* scenes: light valley (golden hour) + dark jellyfish (bioluminescent) */
 .sway { transform-origin: 50% 100%; animation: sway 11s ease-in-out infinite; animation-delay: var(--motion-delay, 0s); }
 @keyframes sway { 0%, 100% { transform: skewX(-.35deg); } 50% { transform: skewX(1.2deg); } }
-.cloud { animation: drift 110s linear infinite; animation-delay: var(--motion-delay, 0s); }
-@keyframes drift { to { transform: translateX(-200px); } }
-.valley-base-drift { animation: valleyBaseDrift 52s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
-@keyframes valleyBaseDrift { 0%, 100% { transform: translate3d(-1px, 0, 0); } 50% { transform: translate3d(2px, -1px, 0); } }
+/* slow camera push toward the sun: always scaled >1 so the photo never shows an edge */
+.valley-base-drift { animation: valleyBaseDrift 48s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: 78% 42%; }
+@keyframes valleyBaseDrift { 0% { transform: scale(1.01) translate3d(0, 0, 0); } 100% { transform: scale(1.075) translate3d(-14px, 4px, 0); } }
+.sky-flow { opacity: 0; animation: skyFlow 34s linear infinite; }
+.sky-flow-b { animation-delay: -17s; }
+@keyframes skyFlow { 0% { transform: translateX(28px); opacity: 0; } 50% { opacity: 1; } 100% { transform: translateX(-52px); opacity: 0; } }
+/* flock: crosses right-to-left (away from the sun), then waits off-frame before the next pass */
+.flock-path { animation: flockCross 46s linear infinite; animation-delay: -6s; }
+@keyframes flockCross { 0% { transform: translate(1760px, 250px); } 58% { transform: translate(-220px, 120px); } 100% { transform: translate(-220px, 120px); } }
+.bird-flap { transform-box: fill-box; transform-origin: 50% 100%; animation: birdFlap var(--flap, .6s) ease-in-out infinite; animation-delay: var(--motion-delay, 0s); }
+@keyframes birdFlap { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(-.35) translateY(-3px); } }
+.bird-bob { animation: birdBob 3.2s ease-in-out infinite; animation-delay: var(--motion-delay, 0s); }
+.glider { animation: glide 19s ease-in-out infinite; animation-delay: var(--motion-delay, 0s); }
+@keyframes glide { 0%, 100% { transform: translate(0, 0) rotate(-4deg); } 25% { transform: translate(38px, -10px) rotate(2deg); } 50% { transform: translate(64px, 4px) rotate(5deg); } 75% { transform: translate(26px, 12px) rotate(-1deg); } }
+.lens-flare { animation: sunBreath 9s ease-in-out infinite; }
+.flare-streak { transform-box: fill-box; transform-origin: center; animation: streak 9s ease-in-out infinite; }
+@keyframes streak { 0%, 100% { transform: scaleX(.86); opacity: .55; } 50% { transform: scaleX(1.06); opacity: .9; } }
+.sun-breath { animation: sunBreath 9s ease-in-out infinite; }
+@keyframes sunBreath { 0%, 100% { opacity: .78; } 50% { opacity: 1; } }
+.meadow-gust { opacity: 0; animation: meadowGust 17s cubic-bezier(.4, 0, .3, 1) infinite; animation-delay: -3s; }
+@keyframes meadowGust { 0% { transform: translateX(0) skewX(-18deg); opacity: 0; } 12% { opacity: .55; } 70% { opacity: .4; } 88%, 100% { transform: translateX(2500px) skewX(-18deg); opacity: 0; } }
+.pollen { opacity: 0; animation: pollenRise var(--d, 20s) linear infinite; animation-delay: var(--motion-delay, 0s); }
+@keyframes pollenRise { 0% { transform: translate(0, 0); opacity: 0; } 15% { opacity: var(--o, .7); } 50% { transform: translate(calc(var(--dx) * .6), calc(var(--dy) * .45)); } 85% { opacity: var(--o, .7); } 100% { transform: translate(var(--dx), var(--dy)); opacity: 0; } }
 .ray-drift { animation: rayDrift 28s ease-in-out infinite; transform-box: fill-box; transform-origin: 86% 40%; }
 @keyframes rayDrift { 0%, 100% { transform: translateX(-5px) rotate(-.35deg); } 50% { transform: translateX(7px) rotate(.35deg); } }
 .mist-drift { transform-box: fill-box; transform-origin: center; }
@@ -177,21 +196,8 @@ img { display: block; }
 .mist-drift-b { animation: mistDriftB 62s ease-in-out infinite; }
 @keyframes mistDriftA { 0%, 100% { transform: translateX(-34px) scaleX(1); } 50% { transform: translateX(26px) scaleX(1.04); } }
 @keyframes mistDriftB { 0%, 100% { transform: translateX(30px) scaleX(1.03); } 50% { transform: translateX(-42px) scaleX(.98); } }
-.valley-stems { transform-box: fill-box; transform-origin: 50% 100%; }
-.valley-stems-far { animation: valleySwayFar 17s ease-in-out infinite; animation-delay: -4s; }
-.valley-stems-mid { animation: valleySwayMid 12s ease-in-out infinite; animation-delay: -7s; }
-.valley-stems-near { animation: valleySwayNear 9s ease-in-out infinite; animation-delay: -2s; }
-@keyframes valleySwayFar { 0%, 100% { transform: skewX(-.25deg) translateX(-1px); } 50% { transform: skewX(.7deg) translateX(2px); } }
-@keyframes valleySwayMid { 0%, 100% { transform: skewX(-.6deg) translateX(-2px); } 50% { transform: skewX(1.3deg) translateX(4px); } }
-@keyframes valleySwayNear { 0%, 100% { transform: skewX(-1deg) translateX(-3px); } 50% { transform: skewX(2.1deg) translateX(6px); } }
-.valley-petal { animation: valleyPetalBob 5.8s ease-in-out infinite; animation-delay: var(--motion-delay, 0s); transform-box: fill-box; transform-origin: center; }
-@keyframes valleyPetalBob { 0%, 100% { transform: translateY(0) scale(.94); opacity: .48; } 50% { transform: translateY(-2px) scale(1.05); opacity: .9; } }
-.bird { animation: birdBob 8.5s ease-in-out infinite; animation-delay: var(--motion-delay, 0s); transform-box: fill-box; transform-origin: center; }
-.bird:nth-child(2) { animation-duration: 10.5s; animation-delay: -2.6s; }
-.bird:nth-child(3) { animation-duration: 12s; animation-delay: -6.2s; }
 @keyframes birdBob { 50% { transform: translateY(3px); } }
 .spark { animation: twinkle 4.8s ease-in-out infinite; animation-delay: var(--motion-delay, 0s); transform-box: fill-box; transform-origin: center; }
-.valley-petal.spark { animation: valleyPetalBob 5.8s ease-in-out infinite; animation-delay: var(--motion-delay, 0s); }
 @keyframes twinkle { 0%, 100% { opacity: .2; transform: scale(.7); } 50% { opacity: 1; transform: scale(1.15); } }
 .ray-sweep { animation: rayBreathe 14s ease-in-out infinite; animation-delay: var(--motion-delay, 0s); }
 @keyframes rayBreathe { 0%, 100% { opacity: .78; } 50% { opacity: 1; } }
@@ -375,6 +381,46 @@ img { display: block; }
 .seg-ctl button { height: 30px; padding: 0 12px; border: 0; border-radius: 999px; background: none; cursor: pointer; font: 600 12px var(--mono); color: var(--muted); }
 .seg-ctl button.on { background: var(--surface-solid); color: var(--text); box-shadow: var(--shadow-s); }
 .toolbar .lbl { font-size: 12px; color: var(--muted); }
+/* shot evidence: visible action phases and how the shot ends */
+.phases { margin-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 12.5px; color: var(--text-2); }
+.phases i { font-style: normal; color: var(--muted); }
+.phases .end { margin-left: 4px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--surface-2); color: var(--text-2); }
+.phases .end.settled { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.phases .end.ongoing { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.phases .end.cutoff { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); }
+
+/* transcript, voice-over, final cut */
+.lines { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.line { display: grid; grid-template-columns: 52px 44px 1fr; gap: 8px; align-items: baseline; padding: 6px 8px; border-radius: 10px; cursor: pointer; font-size: 13px; }
+.line:hover { background: var(--surface-2); }
+.line b { font: 600 11px var(--mono); color: var(--accent); }
+.line p { margin: 0; color: var(--text); }
+.voice-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; }
+.voice-bar select { height: 36px; min-width: 220px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-solid); color: var(--text); font: inherit; font-size: 13px; }
+.vo-clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-top: 12px; }
+.vo-clip { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: var(--surface-2); font-size: 12.5px; }
+.vo-clip audio { width: 100%; height: 32px; }
+.vo-clip .cnt { font: 600 11px var(--mono); color: var(--ok); }
+.vo-clip .cnt.over { color: var(--bad); }
+.final-cut { margin-bottom: 16px; }
+.muted { color: var(--muted); }
+
+/* H3 generation */
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); cursor: pointer; }
+.check.off { opacity: .5; cursor: not-allowed; }
+.check input { accent-color: var(--accent); }
+.h3-state { margin: 0 20px 12px; padding: 10px 14px; border-radius: 12px; background: var(--surface-2); font-size: 12.5px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.h3-state p { flex-basis: 100%; margin: 0; color: var(--text-2); }
+.h3-state.succeeded { background: color-mix(in srgb, var(--ok) 10%, transparent); color: var(--ok); }
+.h3-state.failed, .h3-state.unknown { background: color-mix(in srgb, var(--bad) 9%, transparent); color: var(--bad); }
+.h3-state.rejected { background: color-mix(in srgb, var(--warn) 10%, transparent); color: var(--warn); }
+.spinner.sm { width: 14px; height: 14px; margin: 0; border-width: 2px; }
+.h3-videos { margin: 0 20px 14px; display: grid; grid-template-columns: 2fr 1fr; gap: 12px; align-items: start; }
+.h3-videos figure { margin: 0; }
+.h3-videos video { width: 100%; max-height: 520px; border-radius: 12px; background: #000; display: block; }
+.h3-videos figcaption { margin-top: 6px; font-size: 12px; color: var(--muted); }
+@media (max-width: 860px) { .h3-videos { grid-template-columns: 1fr; } }
+
 .warnbox { margin-bottom: 14px; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--warn) 10%, transparent); color: var(--warn); font-size: 12.5px; border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); }
 
 .segment { border-radius: var(--r-l); margin-bottom: 16px; overflow: hidden; }
@@ -555,8 +601,8 @@ html { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
   .scene { transform: scale(1.03); }
   .scene .px { will-change: auto !important; }
   .light-scene .valley-base image { opacity: .96; }
-  .valley-stems-near { display: none; }
   .valley-mist { opacity: .16; }
+  .light-scene .meadow-wind, .light-scene .sky-flow-wrap, .light-scene .pollen:nth-of-type(2n) { display: none; }
   .scene-svg .fx-heavy { filter: none !important; }
   .scene-svg .spark { display: none; }
   .dark-scene .mote:nth-of-type(3n) { display: none; }

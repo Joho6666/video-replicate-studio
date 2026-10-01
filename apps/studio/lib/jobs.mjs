@@ -40,14 +40,25 @@ export async function createJob(input) {
   return job;
 }
 
-export async function saveJob(job) {
+// Writes for one job are queued: the director saves from several parallel segment calls, and two
+// overlapping write+rename pairs on one temp name make the later rename fail with ENOENT.
+const writes = new Map();
+let seq = 0;
+
+export function saveJob(job) {
   job.updatedAt = new Date().toISOString();
   cache.set(job.id, job);
   const file = path.join(jobDir(job.id), 'job.json');
-  const tmp = `${file}.${process.pid}.tmp`;
-  await writeFile(tmp, JSON.stringify(job, null, 2));
-  await rename(tmp, file);
-  return job;
+  const write = async () => {
+    const tmp = `${file}.${process.pid}.${++seq}.tmp`;
+    await writeFile(tmp, JSON.stringify(job, null, 2));
+    await rename(tmp, file);
+    return job;
+  };
+  const next = (writes.get(job.id) || Promise.resolve()).catch(() => {}).then(write);
+  writes.set(job.id, next);
+  next.finally(() => { if (writes.get(job.id) === next) writes.delete(job.id); }).catch(() => {});
+  return next;
 }
 
 export async function loadJob(id) {

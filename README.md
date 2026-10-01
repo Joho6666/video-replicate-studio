@@ -53,3 +53,7 @@ pnpm studio                                          # http://127.0.0.1:3300
 - 抖音 / B站：MediaCrawler（首次弹出 Chrome 扫码，登录态保存在 `apps/media-crawler/browser_data/`）；抖音失败且配了 TikHub 时自动改用 TikHub。
 - TikTok / Instagram：TikHub（需 `TIKHUB_API_KEY`）。
 - 任务数据在 `apps/studio/data/jobs/<id>/`，导出的素材包在其中的 `export/`。
+- 导演拆解：场景检测找切点 → 每个镜头截「首 / 中 / 尾」三联图 → DeepSeek 先做全片拆解、再逐段（≤15s）写提示词，记录动作过程与结束状态；三联图里看出的漏检切点用 SSIM 二分定位到帧。
+- 「H3 出片」：把逐镜描述编译成 MiniMax H3 三段式提示词（素材包里的 `H3提示词.md`）。配了 `MINIMAX_API_KEY`（按量付费 Key）后可在页面上一键生成：先确认费用，同一段只提交一次（生成中或结果不明时不会重提），出片后自动下载并生成「原片 | 生成」左右对照视频，记录在任务的 `h3/seg-N/`。
+- 声音（MOSI，配 `MOSS_API_KEY` 后启用）：拆解时自动转写原片口播 / 对白并交给导演和文案；「带货文案」页可按每段时长一键配音（`expected_duration_sec` 实测误差约 0.05s）；「H3 出片」页在所有段出片后可合成完整成片（配音在上、H3 原声压低作底），附 `captions.srt` 字幕。
+- 测试：`cd apps/studio && npm test`（纯函数，不调用任何付费接口）。
