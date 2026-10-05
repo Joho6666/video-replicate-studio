@@ -2,9 +2,14 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fromDirector, loadBoard, saveBoard } from './board.mjs';
+import { defaultExportRoot, exportToFactory } from './export-factory.mjs';
+import { planGenerate, submitGenerate } from './generate.mjs';
+import { generateHookVoices, runHookWriter } from './hooks.mjs';
 import { generateStill } from './images.mjs';
 import { createJob, jobDir, saveJob } from './jobs.mjs';
+import { runQc } from './qc.mjs';
 import { renderAnimatic } from './render.mjs';
+import { generateVoiceover, loadVoiceManifest, planVoiceover, voiceIdOf } from './voiceover.mjs';
 import { runScriptSplit } from './script.mjs';
 
 export const MAX_STILLS_PER_CALL = 12;
@@ -78,7 +83,9 @@ export async function fillStills(job, { ids = null, again = false, expect, gen =
         const current = (await loadBoard(job)) || board; // re-read: earlier iterations already saved
         const target = current.shots.find(s => s.id === shot.id);
         target.source.image = rel;
-        await saveBoard(job, current);
+        delete target.qc; // a new picture has not been checked yet
+        if (target.status === 'failed') target.status = 'draft';
+        await saveBoard(job, current, { trustQc: true });
         generated.push(shot.id);
       } catch (e) { failed.push({ id: shot.id, error: e.message }); }
     }
@@ -93,4 +100,80 @@ export async function renderJob(job) {
   board.render = { ...result, at: new Date().toISOString() };
   await saveBoard(job, board);
   return result;
+}
+
+/** Shot-level QC. Free ffmpeg checks plus one cheap vision call per shot; never submits anything paid. */
+export async function qcJob(job, { ids = null, again = false } = {}) {
+  return runQc(job, { ids, again });
+}
+
+/**
+ * Export to a NEW short-video-factory project folder under the export root. The caller names the folder,
+ * not a path, so the HTTP API can never write outside it or into an existing project.
+ */
+export async function exportJob(job, { name, variants = 6, allowNumbers = [], music = [], hookVariants = true } = {}) {
+  const board = await loadBoard(job);
+  if (!board) throw httpError(404, '这个任务还没有镜头表');
+  const folder = String(name || `ai_${job.id}`).trim();
+  if (!/^[\w一-龥-]{1,60}$/.test(folder)) throw httpError(400, '目录名只能用字母、数字、中文、下划线和连字符');
+  if (!Array.isArray(music) || music.length > 5) throw httpError(400, '配乐最多 5 个文件');
+  const nums = (Array.isArray(allowNumbers) ? allowNumbers : []).map(String).filter(x => /^\d{1,6}$/.test(x)).slice(0, 30);
+  return exportToFactory(job, board, { outDir: path.join(defaultExportRoot(), folder), variants: Number(variants), allowNumbers: nums, music: music.map(String), hookVariants });
+}
+
+/**
+ * Hook variants. `write` asks DeepSeek for alternative opening lines (replaces the current set);
+ * `voice` voices the pending ones with MOSI (billed per character, so it needs `confirm` and an exact `count`).
+ */
+export async function hooksJob(job, { action, count, confirm, ids, again, replace, write = runHookWriter, voice = generateHookVoices } = {}) {
+  const board = await loadBoard(job);
+  if (!board) throw httpError(404, '这个任务还没有镜头表');
+  if (action === 'write') {
+    if ((board.hooks || []).some(h => h.voice) && replace !== true) throw httpError(409, '已有配好音的钩子，重写会替换它们（已花的配音费不会退）。确认后再试');
+    const r = await write(job, board, { count: Number(count) || 5 });
+    board.hooks = r.hooks;
+    await saveBoard(job, board, { trustHooks: true });
+    return { hooks: r.hooks, rejected: r.rejected, slot: r.slot, usage: r.usage };
+  }
+  if (action === 'voice') {
+    if (confirm !== true) throw httpError(400, '需要先在页面上确认条数和字数');
+    return voice(job, { ids: Array.isArray(ids) ? ids.map(String) : null, again: Boolean(again), expect: count });
+  }
+  throw httpError(400, 'action 只能是 write 或 voice');
+}
+
+/**
+ * Paid generation from the board. `plan` is free and returns what a submit would send and cost;
+ * `submit` needs `confirm` and the exact `expect` ({ calls, total }) the page showed.
+ */
+export async function generateJob(job, { action, ids, again, confirm, expect, submit = submitGenerate } = {}) {
+  const board = await loadBoard(job);
+  if (!board) throw httpError(404, '这个任务还没有镜头表');
+  const list = Array.isArray(ids) ? ids.map(String) : null;
+  if (action === 'plan') { const p = planGenerate(board, { ids: list, again: Boolean(again) }); return { calls: p.pending.length, total: p.total, pending: p.pending, blocked: p.blocked }; }
+  if (action === 'submit') {
+    if (confirm !== true) throw httpError(400, '需要先在页面上确认次数和费用');
+    return submit(job, { ids: list, again: Boolean(again), expect });
+  }
+  throw httpError(400, 'action 只能是 plan 或 submit');
+}
+
+/**
+ * Whole-script voice-over. `plan` is free and says how many lines / characters would be billed;
+ * `generate` needs `confirm` and the exact `expect` ({ lines, chars }) the page showed.
+ */
+export async function voiceoverJob(job, { action, ids, again, confirm, expect, generate = generateVoiceover } = {}) {
+  const board = await loadBoard(job);
+  if (!board) throw httpError(404, '这个任务还没有镜头表');
+  const list = Array.isArray(ids) ? ids.map(String) : null;
+  if (action === 'plan') {
+    const voiceId = voiceIdOf(job, board);
+    const p = planVoiceover(board, await loadVoiceManifest(job), { voiceId, ids: list, again: Boolean(again) });
+    return { voiceId, total: p.total, lines: p.lines.length, chars: p.chars, language: p.language, pending: p.lines.map(s => s.id) };
+  }
+  if (action === 'generate') {
+    if (confirm !== true) throw httpError(400, '需要先在页面上确认句数和字数');
+    return generate(job, { ids: list, again: Boolean(again), expect });
+  }
+  throw httpError(400, 'action 只能是 plan 或 generate');
 }

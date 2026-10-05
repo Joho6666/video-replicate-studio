@@ -834,3 +834,22 @@ body.dragging-files .picker-more { border-color: var(--accent); color: var(--acc
 .sn-form label { display: block; margin-bottom: 6px; font-size: 12.5px; color: var(--muted); }
 .sn-actions { grid-column: 1 / -1; display: flex; gap: 14px; align-items: center; }
 @media (max-width: 720px) { .sn-form { grid-template-columns: 1fr; } }
+
+/* shot QC + export */
+.bd-note{margin:12px 0;padding:10px 14px;border-radius:10px;background:rgba(40,90,160,.08);font-size:13px;line-height:1.7}
+.bd-note code{font-size:12px;word-break:break-all}
+.bd-qc{margin-top:8px;padding:6px 10px;border-radius:8px;font-size:12px;line-height:1.6;border:1px solid transparent}
+.bd-qc ul{margin:4px 0 0;padding-left:16px}
+.bd-qc li.high{color:#b3261e}.bd-qc li.medium{color:#8a5a00}.bd-qc li.muted{color:#777}
+.bd-qc.q-PASS{background:rgba(30,140,70,.08);border-color:rgba(30,140,70,.25)}
+.bd-qc.q-WARN{background:rgba(200,140,0,.1);border-color:rgba(200,140,0,.3)}
+.bd-qc.q-FAIL{background:rgba(190,40,30,.08);border-color:rgba(190,40,30,.3)}
+
+/* hook variants */
+.bd-hooks{margin:12px 0;padding:12px 14px;border-radius:12px;border:1px solid var(--line,#0001);background:rgba(0,0,0,.02)}
+.bd-hooks-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px}
+.bd-hooks-head .bd-actions{margin-left:auto}
+.bd-hook{display:grid;grid-template-columns:34px 1fr auto;gap:8px;align-items:start;margin:6px 0}
+.bd-hook textarea{width:100%;font:inherit;font-size:13px;padding:6px 8px;border-radius:8px;border:1px solid var(--line,#0002);background:transparent;color:inherit}
+.bd-hook-id{font-weight:700;font-size:12px;padding-top:8px}
+.bd-hook-meta{font-size:12px;opacity:.7;padding-top:8px;white-space:nowrap}

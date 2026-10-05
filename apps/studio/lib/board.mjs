@@ -11,6 +11,7 @@ import { jobDir, saveJob } from './jobs.mjs';
 
 export const BOARD_VERSION = 1;
 export const KINDS = ['reuse', 'still', 'generate', 'client'];
+export const MAX_HOOKS = 12;
 export const STATUSES = ['draft', 'approved', 'queued', 'done', 'failed'];
 
 // CNY per generated second. null = unknown price: the estimate refuses instead of guessing.
@@ -32,7 +33,7 @@ export function billableSeconds(provider, sum) {
 }
 
 /** Shots that share a `generate.group` are one provider call (e.g. an H3 segment); others are alone. */
-function generateGroups(board) {
+export function generateGroups(board) {
   const groups = new Map();
   for (const shot of board.shots || []) {
     if (shot.source?.kind !== 'generate' || !shot.generate) continue;
@@ -105,6 +106,10 @@ export function validateBoard(board) {
     const raw = Math.ceil(grp.sum - 0.05);
     if (raw > lim.max) errors.push(`${grp.shots.join('+')}: 一次生成 ${raw}s，超过 ${grp.provider} 上限 ${lim.max}s，请拆成多次`);
   }
+  if (board.hooks !== undefined) {
+    if (!Array.isArray(board.hooks) || board.hooks.length > MAX_HOOKS) errors.push(`钩子最多 ${MAX_HOOKS} 条`);
+    else board.hooks.forEach((h, i) => { if (!text(h?.id) || !text(h?.text).trim() || text(h.text).length > 400) errors.push(`第 ${i + 1} 条钩子需要 id 和 400 字以内的文本`); });
+  }
   if (board.budget?.limit !== undefined && !(num(board.budget.limit) && board.budget.limit >= 0)) errors.push('预算上限必须是非负数');
   return { ok: errors.length === 0, errors };
 }
@@ -157,7 +162,7 @@ export function fromDirector(job, { provider = 'h3', resolution = '768P' } = {})
 export function fromLegacyShotsJson(obj) {
   const map = s => {
     const base = { id: s.id, start: s.start, end: s.end, line: s.line ?? null, text: s.text || '', visual: s.visual || '', prompt: s.prompt || '', status: 'draft' };
-    if (s.source === 'h3') return { ...base, source: { kind: 'reuse', file: s.clip, in: s.in ?? 0 } };
+    if (s.source === 'h3') return { ...base, source: { kind: 'reuse', file: s.clip, in: s.in ?? 0, lipsync: true } };
     if (s.source === 'still') return { ...base, source: { kind: 'still', image: s.image, overlay: s.overlay, productOverlay: !!s.product_overlay, character: !!s.character } };
     if (s.source === 'client') return { ...base, source: { kind: 'client', image: s.image } };
     if (s.source === 'h3_new') return { ...base, prompt: base.prompt || base.visual, source: { kind: 'generate' }, generate: { provider: 'h3', resolution: '768P', group: s.id } };
@@ -174,9 +179,34 @@ export async function loadBoard(job) {
   try { return JSON.parse(await readFile(boardFile(job), 'utf8')); } catch { return null; }
 }
 
-/** Validates, normalizes, writes atomically, and keeps a small summary on the job. Throws on invalid input. */
-export async function saveBoard(job, input) {
+/**
+ * Validates, normalizes, writes atomically, and keeps a small summary on the job. Throws on invalid input.
+ * `qc` verdicts (`trustQc`), hook voices (`trustHooks`) and the generation ledger (`trustGenerate`) are written only by their server-side runs; for every
+ * other caller they are taken from the stored board, so a client can neither forge nor clear them.
+ */
+export async function saveBoard(job, input, { trustQc = false, trustHooks = false, trustGenerate = false } = {}) {
   const board = normalizeBoard(input);
+  if (!trustQc || !trustHooks || !trustGenerate) {
+    const stored = await loadBoard(job);
+    if (!trustGenerate) {
+      // the generation ledger (task state, task id) is server-made: a client can neither forge nor erase it
+      const prev = new Map((stored?.shots || []).map(s => [s.id, s.generate?.task]));
+      for (const s of board.shots) if (s.generate) { if (prev.get(s.id)) s.generate.task = prev.get(s.id); else delete s.generate.task; }
+    }
+    if (!trustQc) {
+      const prev = new Map((stored?.shots || []).map(s => [s.id, s.qc]));
+      for (const s of board.shots) { if (prev.get(s.id)) s.qc = prev.get(s.id); else delete s.qc; }
+    }
+    if (!trustHooks && Array.isArray(board.hooks)) {
+      // a hook's voice file is server-made: keep it only while the text is unchanged, never accept it from the client
+      const prev = new Map((stored?.hooks || []).map(h => [h.id, h]));
+      board.hooks = board.hooks.map(h => {
+        const old = prev.get(h.id);
+        const { voice, ...rest } = h;
+        return old?.voice && old.text === h.text ? { ...rest, voice: old.voice } : rest;
+      });
+    }
+  }
   const { ok, errors } = validateBoard(board);
   if (!ok) { const e = new Error(errors.join('；')); e.errors = errors; throw e; }
   const file = boardFile(job);

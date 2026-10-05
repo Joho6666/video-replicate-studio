@@ -7,9 +7,10 @@ import { pipeline } from 'node:stream/promises';
 import { config, env, STUDIO_DIR, tools } from './lib/env.mjs';
 import { copyMarkdown, runCopywriter, TARGETS, TONES } from './lib/copywriter.mjs';
 import { buildExport, libtvMarkdown, REF_STYLES } from './lib/export.mjs';
+import { resumeGenerate } from './lib/generate.mjs';
 import { compileH3, h3Markdown, resumeH3, submitH3 } from './lib/h3.mjs';
 import { listVoices } from './lib/moss.mjs';
-import { boardFromDirectorJob, createScriptJob, fillStills, renderJob, splitJob } from './lib/board-api.mjs';
+import { boardFromDirectorJob, createScriptJob, exportJob, fillStills, generateJob, hooksJob, qcJob, renderJob, splitJob, voiceoverJob } from './lib/board-api.mjs';
 import { loadBoard, saveBoard } from './lib/board.mjs';
 import { buildFinal, generateVoice, voiceChars } from './lib/voice.mjs';
 import { ASSET_ROLES } from './lib/refs.mjs';
@@ -258,6 +259,17 @@ async function route(req, res) {
           return send(res, 200, await fillStills(job, { ids: Array.isArray(b.ids) ? b.ids.map(String) : null, again: Boolean(b.again), expect: b.count }));
         }
         if (sub === 'animatic' && req.method === 'POST') return send(res, 200, await renderJob(job));
+        if (sub === 'qc' && req.method === 'POST') {
+          const b = await readJson(req);
+          return send(res, 200, await qcJob(job, { ids: Array.isArray(b.ids) ? b.ids.map(String) : null, again: Boolean(b.again) }));
+        }
+        if (sub === 'voiceover' && req.method === 'POST') return send(res, 200, await voiceoverJob(job, await readJson(req)));
+        if (sub === 'generate' && req.method === 'POST') return send(res, 200, await generateJob(job, await readJson(req)));
+        if (sub === 'hooks' && req.method === 'POST') return send(res, 200, await hooksJob(job, await readJson(req)));
+        if (sub === 'export' && req.method === 'POST') {
+          const b = await readJson(req);
+          return send(res, 200, await exportJob(job, { name: b.name, variants: b.variants ?? 6, allowNumbers: b.allowNumbers, music: b.music, hookVariants: b.hookVariants !== false }));
+        }
       }
       if (action === 'libtv.md' && req.method === 'GET') {
         if (!job.director) return send(res, 404, { error: '提示词还没生成' });
@@ -301,6 +313,7 @@ if (proxy && !process.env.NODE_USE_ENV_PROXY) {
     console.log(`\n  复刻工作台  →  http://127.0.0.1:${config.port}${proxy ? `（外网经代理 ${proxy.replace(/\/\/[^@]*@/, '//')}）` : ''}\n`);
     health().then(h => { for (const e of Object.values(h.engines)) console.log(`  ${e.ok ? '●' : '○'} ${e.label.padEnd(13)} ${e.note}`); console.log(''); });
     resumeH3().catch(error => console.warn(`H3 恢复轮询失败：${error.message}`));
+    resumeGenerate().catch(error => console.warn(`镜头表生成恢复轮询失败：${error.message}`));
   });
 }
 
