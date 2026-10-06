@@ -20,7 +20,7 @@ process.env.FACTORY_EXPORT_DIR = path.join(tmp, 'factory-projects');
 const L = file => import(new URL(`../lib/${file}`, import.meta.url));
 const { ffrun, probe } = await L('media.mjs');
 const { tools, STUDIO_DIR } = await L('env.mjs');
-const { createScriptJob, exportJob, hooksJob, voiceoverJob } = await L('board-api.mjs');
+const { autoStillsJob, autoStillsPlan, createScriptJob, exportJob, hooksJob, voiceoverJob } = await L('board-api.mjs');
 const { loadBoard, saveBoard } = await L('board.mjs');
 const { runQc } = await L('qc.mjs');
 const { FACTORY_DIR } = await L('export-factory.mjs');
@@ -85,6 +85,24 @@ await step('shot QC: good clips and stills pass; the black clip and the blank st
   must(['S02', 'S04', 'S05', 'S07'].every(id => v[id] === 'PASS'), `stills should PASS, got ${JSON.stringify(v)}`);
   must(!r.skipped.length, `nothing should be skipped, got ${JSON.stringify(r.skipped)}`);
   return `${JSON.stringify(v)}`;
+});
+
+/* ───────── pictures that fix themselves (fake image service: nothing paid) ───────── */
+await step('auto stills: generate, check, redo what failed, never beyond the confirmed cap', async () => {
+  const j2 = await createScriptJob({ text: 'a\nb', title: 'Auto' });
+  await saveBoard(j2, { version: 1, shots: [
+    { id: 'S01', start: 0, end: 4, text: 'one', prompt: 'a mug on a table, no phone', source: { kind: 'still' } },
+    { id: 'S02', start: 4, end: 8, text: 'two', prompt: 'a window at sunrise', source: { kind: 'still' } },
+  ] });
+  const made = [];
+  // the first picture of S01 is blank (fails the free objective check), everything else is fine
+  const gen = async ({ prompt, out }) => { made.push(prompt); const blank = made.length === 1; await mkdir(path.dirname(out), { recursive: true }); await ff(['-f', 'lavfi', '-i', blank ? 'color=c=white:size=720x1280' : 'testsrc2=size=720x1280', '-frames:v', '1', out]); };
+  const plan = await autoStillsPlan(j2);
+  must(plan.shots === 2 && plan.max === 6, `plan was ${JSON.stringify(plan)}`);
+  const r = await autoStillsJob(j2, { expect: { shots: plan.shots, max: plan.max }, gen, qcOpts: { useVision: false } });
+  must(r.images === 3 && r.passed.length === 2 && !r.stillFailing.length, `unexpected result ${JSON.stringify({ images: r.images, passed: r.passed, failing: r.stillFailing, rounds: r.rounds })}`);
+  must(!/no/.test(made[2]), `the retry prompt should have lost its negation: ${made[2]}`);
+  return `3 images for 2 pictures (1 redone), retry prompt: "${made[2]}"`;
 });
 
 /* ───────── whole-script voice-over (fake voice: nothing paid) ───────── */
@@ -158,6 +176,19 @@ else {
     const bad = names.filter(n => !ok.has(n));
     must(code === 0 && !bad.length, `render failed for: ${bad.join(', ') || '(exit ' + code + ')'}\n${log.split('\n').filter(l => /^FAIL/.test(l)).slice(0, 3).join('\n')}`);
     return `${names.length} videos`;
+  });
+  await step('finish: grade + sound design keep the length and hit the loudness target', async () => {
+    const { finishVideo } = await L('finish.mjs');
+    const name = exported.variants[0];
+    const r = await finishVideo({ project: exported.outDir, name, style: 'cinematic' });
+    const before = await probe(path.join(exported.outDir, `成片/${name}.mp4`));
+    const after = await probe(r.output);
+    must(Math.abs(after.duration - before.duration) < 0.2, `finish changed the length: ${before.duration} → ${after.duration}`);
+    must(r.audio === 'rebuilt', 'the sound should have been rebuilt from the usage file');
+    const { stderr } = await ffrun(tools.ffmpeg, ['-hide_banner', '-i', r.output, '-af', 'ebur128=peak=true', '-f', 'null', '-']);
+    const lufs = Number([...stderr.matchAll(/I:\s+(-?[\d.]+) LUFS/g)].at(-1)?.[1]);
+    must(Math.abs(lufs - -14) < 1.5, `loudness ${lufs} LUFS`);
+    return `${name} ${after.duration.toFixed(1)}s ${lufs.toFixed(1)} LUFS, ${r.whoosh} whoosh, ${r.impact} impact`;
   });
   await step('rendered videos: decode, 9:16, duration, loudness', async () => {
     const lines = [];

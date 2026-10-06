@@ -85,3 +85,21 @@ test('a shot that shows a scientist or doctor is never AI-generated, even if the
   assert.match(board.shots[0].source.reason, /客户提供真人素材/);
   assert.equal(validateBoard(board).ok, true);
 });
+
+test('checkPlan rejects prompts that name unwanted things (the model draws what you name), but allows "no text"', () => {
+  const ok = { shots: [{ kind: 'broll', visual: 'x', prompt_en: 'Photorealistic vertical photo of a mug on a table, no text, no watermark' }] };
+  assert.deepEqual(checkPlan(ok, 1).hard, []);
+  const bad = { shots: [{ kind: 'broll', visual: 'x', prompt_en: 'Photorealistic vertical photo of a mug on a table, no phone in the frame' }] };
+  assert.match(checkPlan(bad, 1).hard.join('|'), /否定句「no phone/);
+});
+
+test('product shots use the real product photo when the board has one, and the AI overlay hack otherwise', () => {
+  const lines = [{ start: 0, end: 4, text: 'a' }, { start: 4, end: 8, text: 'b' }];
+  const plan = { shots: [{ kind: 'product', visual: 'v', prompt_en: 'Photorealistic product close-up photo', character: false }, { kind: 'product', visual: 'v', prompt_en: 'Photorealistic product close-up photo', character: false }] };
+  const withPhoto = buildBoardFromPlan(lines, plan, { product: { image: 'assets/p.jpg' } });
+  assert.equal(withPhoto.shots[0].source.useProductImage, true);
+  assert.equal(withPhoto.shots[0].source.productOverlay, false);
+  const without = buildBoardFromPlan(lines, plan, {});
+  assert.equal(without.shots[0].source.useProductImage, undefined);
+  assert.equal(without.shots[0].source.productOverlay, true);
+});

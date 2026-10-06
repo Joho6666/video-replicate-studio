@@ -2,7 +2,7 @@
 // are regenerated. Free objective checks (ffmpeg) decide hard failures; the vision model may only
 // *cite* a defect with a frame number and a short evidence text — a claim without a frame is dropped,
 // and the verdict is computed here, never taken from the model or the client.
-import { mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { config, tools } from './env.mjs';
@@ -223,7 +223,9 @@ export async function qcShot(job, board, shot, { measure = measureClip, measureS
     } catch (e) { vis.skipped = `视觉质检没跑成：${e.message}`; }
     finally { await rm(dir, { recursive: true, force: true }).catch(() => {}); }
   } else if (useVision) vis.skipped = m.decodeError ? '文件无法解码，已跳过视觉质检' : 'DeepSeek Key 未配置，只做了客观检查';
-  return { verdict: decide(checks, issues), checks, issues, vision: vis, subject: hasClip ? 'clip' : 'image', at: new Date().toISOString() };
+  const file = hasClip ? clip.file : imageFile;
+  const st = await stat(file).catch(() => null);
+  return { verdict: decide(checks, issues), checks, issues, vision: vis, subject: hasClip ? 'clip' : 'image', asset: `${path.basename(file)}:${st?.size ?? 0}:${Math.round(st?.mtimeMs ?? 0)}`, at: new Date().toISOString() };
 }
 
 const running = new Set(); // one QC run per job at a time
@@ -247,6 +249,8 @@ export async function runQc(job, opts = {}) {
       const current = (await loadBoard(job)) || board; // re-read: earlier iterations already saved
       const target = current.shots.find(s => s.id === shot.id);
       target.qc = result;
+      // one log entry per distinct picture / take (re-checking the same file does not count twice)
+      if (target.qcLog?.at(-1)?.asset !== result.asset) target.qcLog = [...(target.qcLog || []).slice(-9), { verdict: result.verdict, subject: result.subject, asset: result.asset, at: result.at }];
       if (result.verdict === 'FAIL') target.status = 'failed';
       await saveBoard(job, current, { trustQc: true });
       checked.push({ id: shot.id, verdict: result.verdict });
@@ -270,3 +274,24 @@ export const qcSummary = board => {
   for (const s of board?.shots || []) c[s.qc?.verdict || 'none']++;
   return c;
 };
+
+/**
+ * How often generation produced something usable, and what a usable second really cost.
+ * Counts every distinct picture / take that was checked (`qcLog`); spend is what the generation ledger recorded.
+ */
+export function yieldStats(board) {
+  const tally = () => ({ checked: 0, usable: 0 });
+  const by = { clip: tally(), image: tally() };
+  for (const s of board?.shots || []) for (const e of s.qcLog || []) { const t = by[e.subject] || (by[e.subject] = tally()); t.checked++; if (e.verdict !== 'FAIL') t.usable++; }
+  let spent = 0, usableSeconds = 0;
+  const counted = new Set();
+  for (const s of board?.shots || []) {
+    const task = s.generate?.task;
+    if (!task) continue;
+    const key = task.taskId || `${s.id}:${task.submittedAt}`;
+    if (!counted.has(key)) { counted.add(key); spent += (['rejected'].includes(task.state) ? 0 : task.cost || 0); for (const h of task.history || []) if (h.cost && h.state !== 'rejected') spent += h.cost; }
+    if (task.state === 'succeeded' && s.qc?.verdict !== 'FAIL') usableSeconds += Math.max(0, (s.end ?? 0) - (s.start ?? 0));
+  }
+  const rate = t => (t.checked ? Math.round((t.usable / t.checked) * 100) / 100 : null);
+  return { clip: { ...by.clip, rate: rate(by.clip) }, image: { ...by.image, rate: rate(by.image) }, spent: Math.round(spent * 100) / 100, usableSeconds: Math.round(usableSeconds * 10) / 10, costPerUsableSecond: usableSeconds > 0 ? Math.round((spent / usableSeconds) * 100) / 100 : null };
+}

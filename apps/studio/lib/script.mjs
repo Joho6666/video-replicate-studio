@@ -4,6 +4,7 @@
 import { chat } from './copywriter.mjs';
 import { config } from './env.mjs';
 import { BOARD_VERSION, normalizeBoard, validateBoard } from './board.mjs';
+import { negations } from './promptlint.mjs';
 
 export const KINDS = ['talk', 'broll', 'product', 'graphic', 'expert'];
 export const MAX_GENERATE_SECONDS = 10; // default cap on paid on-camera seconds per video
@@ -73,7 +74,7 @@ const SYSTEM = `你是短视频分镜导演，擅长把口播脚本拆成能直�
    - product：产品特写或摆拍（产品会用客户提供的真实产品图，不要描述瓶身上的字）；
    - graphic：抽象概念、信息图、动画示意，不出现真人脸；
    - expert：需要"专家/医生/创始人"出镜的句子。这类镜头必须由客户提供真人素材，不要编造。
-3. prompt_en：英文图像提示词，写成"Photorealistic vertical phone photo, …"，一句话，包含景别、主体、动作、光线；不要出现任何文字、商标、品牌名；不要出现真实名人或第三方影视动漫角色；不要用否定句点名某个角色。
+3. prompt_en：英文图像提示词，写成"Photorealistic vertical phone photo, …"，一句话，包含景别、主体、动作、光线；不要出现任何文字、商标、品牌名；不要出现真实名人或第三方影视动漫角色；**不要写任何否定句**（no / without / not / 不要…）——点名不想要的东西，模型反而会把它画出来，只描述想要的画面；尽量让画面里不出现人手和人脸特写（手最容易画坏），除非这一镜必须有。
 4. character：画面里出现主角（同一个人）时为 true。
 5. overlay：可选，画面上要弹出的关键词，≤4 个词，没有就留空字符串。
 6. visual：一句中文，说明这一镜给人看的画面。
@@ -88,6 +89,8 @@ export function checkPlan(plan, count) {
     if (!KINDS.includes(s?.kind)) hard.push(`第 ${i + 1} 镜 kind 无效`);
     if (typeof s?.prompt_en !== 'string' || s.prompt_en.trim().length < 12) hard.push(`第 ${i + 1} 镜缺少 prompt_en`);
     if (typeof s?.visual !== 'string' || !s.visual.trim()) hard.push(`第 ${i + 1} 镜缺少 visual`);
+    const neg = negations(s?.prompt_en);
+    if (neg.length) hard.push(`第 ${i + 1} 镜 prompt_en 含否定句「${neg[0].phrase}」，请改成只描述想要的画面`);
   });
   return { hard };
 }
@@ -111,7 +114,8 @@ export function buildBoardFromPlan(lines, plan, opts = {}) {
       spent += Math.max(4, Math.ceil(dur));
       return { ...base, source: { kind: 'generate' }, generate: { provider, resolution, group: id } };
     }
-    return { ...base, source: { kind: 'still', character: !!p.character || p.kind === 'talk', productOverlay: p.kind === 'product', overlay: clip(p.overlay, 40) || undefined } };
+    const realProduct = p.kind === 'product' && !!product?.image; // a real photo of the product beats any AI drawing of its label
+    return { ...base, source: { kind: 'still', character: !!p.character || p.kind === 'talk', productOverlay: p.kind === 'product' && !realProduct, ...(realProduct ? { useProductImage: true } : {}), overlay: clip(p.overlay, 40) || undefined } };
   });
   const board = normalizeBoard({ version: BOARD_VERSION, title, from: { kind: 'script' }, voice, presenter, product, ...(budget ? { budget } : {}), shots });
   const { ok, errors } = validateBoard(board);

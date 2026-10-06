@@ -853,3 +853,5 @@ body.dragging-files .picker-more { border-color: var(--accent); color: var(--acc
 .bd-hook textarea{width:100%;font:inherit;font-size:13px;padding:6px 8px;border-radius:8px;border:1px solid var(--line,#0002);background:transparent;color:inherit}
 .bd-hook-id{font-weight:700;font-size:12px;padding-top:8px}
 .bd-hook-meta{font-size:12px;opacity:.7;padding-top:8px;white-space:nowrap}
+
+.bd-lint{margin:4px 0 0;font-size:12px;line-height:1.5;color:#8a5a00}

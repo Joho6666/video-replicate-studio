@@ -6,7 +6,7 @@
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { REPO_DIR, tools } from './env.mjs';
+import { REPO_DIR, STUDIO_DIR, tools } from './env.mjs';
 import { jobDir } from './jobs.mjs';
 import { ffrun } from './media.mjs';
 import { DEFAULT_BANNED, BANNED_EXCEPTIONS, checkLine, plain, whitelistFrom } from './compliance.mjs';
@@ -179,6 +179,9 @@ export function reportMarkdown({ job, outDir, items, skipped, scripts, voiced, w
     `$env:SVF_PROJECT = "${fwd(outDir)}"`,
     `${fwd(path.join(FACTORY_DIR, '.venv/Scripts/python.exe'))} ${fwd(path.join(FACTORY_DIR, 'svf/run_batch.py'))} -j 2 ${names.join(' ')}`,
     `${fwd(path.join(FACTORY_DIR, '.venv/Scripts/python.exe'))} ${fwd(path.join(FACTORY_DIR, 'svf/qc.py'))} ${names.join(' ')}`,
+    '```', '',
+    '## 精修（调色 + 音效 + 响度，可选）', '渲完之后对成片加调色、转场音效、配乐压低和响度归一，输出 `成片/<名字>_finish.mp4`：', '```',
+    `node ${fwd(path.join(STUDIO_DIR, 'scripts/finish.mjs'))} ${fwd(outDir)} ${names.join(' ')} --style cinematic`,
     '```', '');
   return L.join('\n');
 }

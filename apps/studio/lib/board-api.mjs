@@ -1,5 +1,6 @@
 // Job-level operations on a board, kept out of server.mjs so they can be tested without HTTP.
 import { existsSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fromDirector, loadBoard, saveBoard } from './board.mjs';
 import { defaultExportRoot, exportToFactory } from './export-factory.mjs';
@@ -7,7 +8,10 @@ import { planGenerate, submitGenerate } from './generate.mjs';
 import { generateHookVoices, runHookWriter } from './hooks.mjs';
 import { generateStill } from './images.mjs';
 import { createJob, jobDir, saveJob } from './jobs.mjs';
-import { runQc } from './qc.mjs';
+import { runQc, yieldStats } from './qc.mjs';
+import { lintPrompt, retryPrompt } from './promptlint.mjs';
+import { tools } from './env.mjs';
+import { ffrun } from './media.mjs';
 import { renderAnimatic } from './render.mjs';
 import { generateVoiceover, loadVoiceManifest, planVoiceover, voiceIdOf } from './voiceover.mjs';
 import { runScriptSplit } from './script.mjs';
@@ -55,7 +59,7 @@ export async function boardFromDirectorJob(job) {
 
 /** Shots that are stills, have a prompt and no image on disk yet (or all with `again`). Pure. */
 export function pendingStills(board, root, { ids = null, again = false } = {}) {
-  return board.shots.filter(s => s.source?.kind === 'still' && s.prompt && (!ids || ids.includes(s.id))
+  return board.shots.filter(s => s.source?.kind === 'still' && !s.source.useProductImage && s.prompt && (!ids || ids.includes(s.id))
     && (again || !s.source.image || !existsSync(path.join(root, s.source.image))));
 }
 
@@ -176,4 +180,125 @@ export async function voiceoverJob(job, { action, ids, again, confirm, expect, g
     return generate(job, { ids: list, again: Boolean(again), expect });
   }
   throw httpError(400, 'action 只能是 plan 或 generate');
+}
+
+/* ───────── real product photo as a still (free, no AI) ───────── */
+
+/** 9:16 still from the product photo: blurred copy as background, the photo itself centred and uncropped. */
+export async function makeProductStill(productFile, out, ffmpeg = a => ffrun(tools.ffmpeg, a)) {
+  await mkdir(path.dirname(out), { recursive: true });
+  await ffmpeg(['-hide_banner', '-y', '-i', productFile, '-filter_complex',
+    '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=40:10,eq=brightness=-0.06[bg];[0:v]scale=960:1500:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2',
+    '-frames:v', '1', '-q:v', '3', out]);
+  return out;
+}
+
+/** Fills every shot marked `useProductImage` from the board's product photo. Free; returns the shot ids it made. */
+export async function fillProductStills(job, { make = makeProductStill } = {}) {
+  const board = await loadBoard(job);
+  if (!board) throw httpError(404, '这个任务还没有镜头表');
+  const root = jobDir(job.id);
+  const todo = board.shots.filter(s => s.source?.useProductImage && !(s.source.image && existsSync(path.join(root, s.source.image))));
+  if (!todo.length) return [];
+  const productRel = board.product?.image;
+  if (!productRel || !existsSync(path.join(root, productRel))) throw httpError(400, '这张镜头表没有产品图，先上传产品图');
+  const made = [];
+  for (const shot of todo) {
+    const rel = `board/${shot.id}.jpg`;
+    await make(path.join(root, productRel), path.join(root, rel));
+    const current = await loadBoard(job);
+    const target = current.shots.find(s => s.id === shot.id);
+    target.source.image = rel;
+    delete target.qc;
+    await saveBoard(job, current, { trustQc: true });
+    made.push(shot.id);
+  }
+  return made;
+}
+
+/* ───────── pictures that fix themselves (cheap: a few cents per image) ───────── */
+
+export const MAX_AUTO_RETRIES = 2;
+export const MAX_AUTO_IMAGES = 24; // hard cap on images one auto run may generate, whatever the board says
+const AUTO_BUSY = new Set();
+
+/** Stills that need a picture, plus (with `fixFailed`) stills whose picture failed QC. Pure. */
+export function autoTargets(board, root, { ids = null, fixFailed = true } = {}) {
+  const missing = pendingStills(board, root, { ids });
+  const failed = fixFailed ? board.shots.filter(s => s.source?.kind === 'still' && !s.source.useProductImage && s.prompt && s.qc?.verdict === 'FAIL' && (!ids || ids.includes(s.id)) && !missing.includes(s)) : [];
+  return [...missing, ...failed];
+}
+
+/**
+ * Generate → check → regenerate only what failed, at most `maxRetries` more times (retry prompts drop negations
+ * and add a positive composition hint). The caller echoes { shots, max }: how many pictures need work and the most
+ * images this run may produce — both recomputed here, so a stale page cannot trigger a larger bill.
+ */
+export async function autoStillsJob(job, { ids = null, maxRetries = MAX_AUTO_RETRIES, fixFailed = true, expect, gen = generateStill, check = runQc, qcOpts = {}, make = makeProductStill } = {}) {
+  const board = await loadBoard(job);
+  if (!board) throw httpError(404, '这个任务还没有镜头表');
+  if (!Number.isInteger(maxRetries) || maxRetries < 0 || maxRetries > MAX_AUTO_RETRIES) throw httpError(400, `重试最多 ${MAX_AUTO_RETRIES} 轮`);
+  const root = jobDir(job.id);
+  const targets = autoTargets(board, root, { ids, fixFailed });
+  const max = targets.length * (1 + maxRetries);
+  if (!targets.length) return { rounds: [], passed: [], stillFailing: [], images: 0, productStills: await fillProductStills(job, { make }) };
+  if (!expect || expect.shots !== targets.length || expect.max !== max) throw httpError(409, `需要处理 ${targets.length} 张、最多生成 ${max} 张，页面上确认的是 ${expect ? `${expect.shots} 张、最多 ${expect.max} 张` : '未确认'}，请刷新后重试`);
+  if (max > MAX_AUTO_IMAGES) throw httpError(400, `一次最多生成 ${MAX_AUTO_IMAGES} 张，请分批`);
+  if (AUTO_BUSY.has(job.id)) throw httpError(409, '这个任务正在自动补救分镜图');
+  AUTO_BUSY.add(job.id);
+  const rounds = [];
+  let images = 0, todo = targets.map(s => s.id);
+  const passed = [];
+  try {
+    const productStills = await fillProductStills(job, { make });
+    const failedBefore = targets.filter(s => s.qc?.verdict === 'FAIL').map(s => s.id);
+    if (failedBefore.length) { // these already failed once: do not repeat the same prompt
+      const current = await loadBoard(job);
+      for (const s of current.shots) if (failedBefore.includes(s.id)) s.prompt = retryPrompt(s.prompt, 1);
+      await saveBoard(job, current);
+    }
+    for (let attempt = 0; attempt <= maxRetries && todo.length; attempt++) {
+      if (attempt > 0) { // retry: positive-only prompt, saved on the board so the page shows what was really used
+        const current = await loadBoard(job);
+        for (const s of current.shots) if (todo.includes(s.id)) s.prompt = retryPrompt(s.prompt, attempt);
+        await saveBoard(job, current);
+      }
+      const r = await fillStills(job, { ids: todo, again: true, expect: todo.length, gen });
+      images += r.generated.length;
+      const verdicts = await check(job, { ids: r.generated, again: true, ...qcOpts });
+      const ok = new Set(verdicts.checked.filter(c => c.verdict !== 'FAIL').map(c => c.id));
+      passed.push(...[...ok]);
+      rounds.push({ attempt, generated: r.generated, failedToGenerate: r.failed, passed: [...ok] });
+      todo = todo.filter(id => !ok.has(id));
+      if (r.failed.length && !r.generated.length) break; // the image service is failing: do not burn the rest
+    }
+    return { rounds, passed, stillFailing: todo, images, productStills };
+  } finally { AUTO_BUSY.delete(job.id); }
+}
+
+/** Free preview for the page: what an auto run would work on and the most it could generate. */
+export async function autoStillsPlan(job, { ids = null, maxRetries = MAX_AUTO_RETRIES, fixFailed = true } = {}) {
+  const board = await loadBoard(job);
+  if (!board) throw httpError(404, '这个任务还没有镜头表');
+  const targets = autoTargets(board, jobDir(job.id), { ids, fixFailed });
+  return { shots: targets.length, max: targets.length * (1 + maxRetries), maxRetries, ids: targets.map(s => s.id), productStills: board.shots.filter(s => s.source?.useProductImage && !s.source.image).length };
+}
+
+export const yieldOf = async job => yieldStats(await loadBoard(job));
+
+/** The board as the page sees it: stored data plus view-only fields (prompt warnings, yield statistics). */
+export function boardView(board) {
+  return { ...board, shots: board.shots.map(s => ({ ...s, lint: lintPrompt(s.prompt) })), yield: yieldStats(board) };
+}
+
+/** `plan` is free; `run` needs `confirm` and the exact { shots, max } the page showed. */
+export async function autoStillsAction(job, { action, ids, maxRetries, confirm, expect, run = autoStillsJob } = {}) {
+  const list = Array.isArray(ids) ? ids.map(String) : null;
+  const retries = maxRetries === undefined ? MAX_AUTO_RETRIES : Number(maxRetries);
+  if (action === 'plan') return autoStillsPlan(job, { ids: list, maxRetries: retries });
+  if (action === 'run') {
+    if (confirm !== true) throw httpError(400, '需要先在页面上确认张数');
+    return run(job, { ids: list, maxRetries: retries, expect });
+  }
+  throw httpError(400, 'action 只能是 plan 或 run');
 }

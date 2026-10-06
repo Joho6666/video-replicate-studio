@@ -46,6 +46,7 @@ export async function mountBoard(root, job, ctx) {
           <label class="bd-budget">预算上限 ¥<input id="bdBudget" type="number" min="0" step="1" value="${board.budget?.limit ?? ''}" placeholder="不限"></label>
           <button class="btn sm" id="bdStills" ${busy || !pending ? 'disabled' : ''}>${busy === 'stills' ? '生成中…' : `生成缺失分镜图（${pending}）`}</button>
           <button class="btn sm" id="bdAnim" ${busy ? 'disabled' : ''}>${busy === 'anim' ? '渲染中…' : '出动态分镜（免费）'}</button>
+          <button class="btn sm" id="bdAuto" ${busy ? 'disabled' : ''}>${busy === 'auto' ? '补救中…' : '自动补救分镜图'}</button>
           <button class="btn sm" id="bdVoice" ${busy ? 'disabled' : ''}>${busy === 'voice' ? '配音中…' : '整段配音'}</button>
           <button class="btn sm" id="bdGen" ${busy ? 'disabled' : ''}>${busy === 'gen' ? '提交中…' : '提交付费生成'}</button>
           <button class="btn sm" id="bdQc" ${busy ? 'disabled' : ''}>${busy === 'qc' ? '质检中…' : '镜头质检'}</button>
@@ -53,6 +54,7 @@ export async function mountBoard(root, job, ctx) {
           <button class="btn ink sm" id="bdSave" ${busy || !dirty ? 'disabled' : ''}>${dirty ? '保存修改' : '已保存'}</button>
         </div>
       </div>
+      ${yieldLine()}
       ${qcBanner()}
       ${hooksPanel()}
       ${lastExport ? exportPanel() : ''}
@@ -65,6 +67,7 @@ export async function mountBoard(root, job, ctx) {
     bind();
   }
 
+  const failedClips = () => (board?.shots || []).filter(s => s.source?.kind === 'generate' && s.qc?.verdict === 'FAIL').map(s => s.id);
   const pendingHooks = () => (board?.hooks || []).filter(h => !h.voice);
   const hookChars = list => list.reduce((n, h) => n + String(h.text || '').replace(/\s/g, '').length, 0);
 
@@ -82,12 +85,20 @@ export async function mountBoard(root, job, ctx) {
       ${rejected}</section>`;
   }
 
+  function yieldLine() {
+    const y = board.yield;
+    if (!y || (!y.clip.checked && !y.image.checked)) return '';
+    const f = t => (t.checked ? `${t.usable}/${t.checked}（${Math.round(t.rate * 100)}%）` : '—');
+    return `<div class="bd-note">成片率：视频 ${f(y.clip)} · 分镜图 ${f(y.image)}${y.spent ? ` · 已花 ${yuan(y.spent)}` : ''}${y.costPerUsableSecond ? ` · 每个可用秒 ≈ ${yuan(y.costPerUsableSecond)}` : ''}</div>`;
+  }
+
   function qcBanner() {
     const c = qcOf();
     if (!c.PASS && !c.WARN && !c.FAIL) return '';
     const p = lastPlan;
     const redo = p?.shots?.length ? `重跑这 ${p.shots.length} 镜预计 ${yuan(p.total)}${p.unknown?.length ? '（部分单价未知）' : ''}；提交仍在「H3 出片」页逐段确认，这里不会扣费。` : '';
-    return `<div class="${c.FAIL ? 'bd-warn' : 'bd-note'}">质检：${c.PASS} 通过 · ${c.WARN} 有瑕疵 · ${c.FAIL} 不合格。${c.FAIL ? redo || '不合格的镜头不会被导出。' : ''}</div>`;
+    const clips = failedClips();
+    return `<div class="${c.FAIL ? 'bd-warn' : 'bd-note'}">质检：${c.PASS} 通过 · ${c.WARN} 有瑕疵 · ${c.FAIL} 不合格。${c.FAIL ? redo || '不合格的镜头不会被导出。' : ''}${clips.length ? ` <button class="btn sm" id="bdRedo">重跑失败的视频镜头（${clips.length}）</button>` : ''}</div>`;
   }
 
   function exportPanel() {
@@ -136,6 +147,7 @@ export async function mountBoard(root, job, ctx) {
         </div>
         <input data-f="text" value="${esc(s.text || '')}" placeholder="台词（可空）">
         <textarea data-f="prompt" rows="3" placeholder="${k === 'client' ? '客户提供真人素材，不写提示词' : '画面提示词'}" ${k === 'client' ? 'disabled' : ''}>${esc(s.prompt || '')}</textarea>
+        ${s.lint && !s.lint.ok ? `<p class="bd-lint">⚠ ${esc(s.lint.warnings[0].advice)}</p>` : ''}
         ${s.visual ? `<p class="bd-visual">${esc(s.visual)}</p>` : ''}
         ${taskBadge(s)}${qcBadge(s)}
         ${k === 'still' ? `<button class="btn text sm" data-act="regen" ${busy ? 'disabled' : ''}>${s.source.image ? '重新生成这张图' : '生成这张图'}</button>` : ''}
@@ -167,8 +179,11 @@ export async function mountBoard(root, job, ctx) {
     root.querySelector('#bdBudget').onchange = e => { board.budget = e.target.value === '' ? undefined : { limit: Number(e.target.value), currency: 'CNY' }; dirty = true; save(); };
     root.querySelector('#bdSave').onclick = save;
     root.querySelector('#bdStills').onclick = () => generate(null, false);
+    root.querySelector('#bdAuto').onclick = () => autoRun();
     root.querySelector('#bdVoice').onclick = () => voiceRun();
     root.querySelector('#bdGen').onclick = () => genRun();
+    const redo = root.querySelector('#bdRedo');
+    if (redo) redo.onclick = () => genRun({ again: true, ids: failedClips() });
     root.querySelector('#bdQc').onclick = () => qcRun();
     root.querySelector('#bdHookWrite').onclick = () => hookWrite();
     root.querySelector('#bdHookVoice').onclick = () => hookVoice();
@@ -211,6 +226,24 @@ export async function mountBoard(root, job, ctx) {
     });
   }
 
+  async function autoRun() {
+    if (busy) return;
+    try {
+      if (dirty) await persist();
+      const p = await api(`/api/jobs/${job.id}/board/autostills`, { method: 'POST', json: { action: 'plan' } });
+      if (!p.shots) {
+        if (p.productStills) { run('auto', () => api(`/api/jobs/${job.id}/board/autostills`, { method: 'POST', json: { action: 'run', confirm: true, expect: { shots: 0, max: 0 } } })); return; }
+        return toast('没有需要生成或补救的分镜图');
+      }
+      if (!confirm(`将处理 ${p.shots} 张分镜图（缺图的生成，质检没过的重做），每张出图后自动质检，没过的最多再重做 ${p.maxRetries} 轮。
+最多生成 ${p.max} 张，按张计费（每张几分钱）。继续吗？`)) return;
+      run('auto', async () => {
+        const r = await api(`/api/jobs/${job.id}/board/autostills`, { method: 'POST', json: { action: 'run', confirm: true, expect: { shots: p.shots, max: p.max } } });
+        toast(`生成 ${r.images} 张，${r.passed.length} 张通过${r.stillFailing.length ? `，${r.stillFailing.length} 张仍不合格（${r.stillFailing.join('、')}），建议改画面描述` : ''}`, r.stillFailing.length > 0);
+      });
+    } catch (e) { toast(e.message, true); }
+  }
+
   async function voiceRun() {
     if (busy) return;
     try {
@@ -227,16 +260,16 @@ export async function mountBoard(root, job, ctx) {
     } catch (e) { toast(e.message, true); }
   }
 
-  async function genRun() {
+  async function genRun(opts = {}) {
     if (busy) return;
     try {
       if (dirty) await persist();
-      const p = await api(`/api/jobs/${job.id}/board/generate`, { method: 'POST', json: { action: 'plan' } });
+      const p = await api(`/api/jobs/${job.id}/board/generate`, { method: 'POST', json: { action: 'plan', ...opts } });
       if (!p.calls) return toast(p.blocked?.length ? `没有可提交的：${p.blocked[0].shots.join('+')}（${p.blocked[0].blocked}）` : '没有付费生成的镜头', true);
       const lines = p.pending.map(c => `  ${c.shots.join('+')}：${c.provider} ${c.resolution} ${c.seconds}s ≈ ${yuan(c.cost)}`).join('\n');
       if (!confirm(`将向 MiniMax 提交 ${p.calls} 次视频生成，共 ${yuan(p.total)}（按量扣费，提交后不能撤销）：\n${lines}\n\n继续吗？`)) return;
       run('gen', async () => {
-        const r = await api(`/api/jobs/${job.id}/board/generate`, { method: 'POST', json: { action: 'submit', confirm: true, expect: { calls: p.calls, total: p.total } } });
+        const r = await api(`/api/jobs/${job.id}/board/generate`, { method: 'POST', json: { action: 'submit', confirm: true, expect: { calls: p.calls, total: p.total }, ...opts } });
         if (r.failed?.length) toast(`已提交 ${r.submitted.length} 次（${yuan(r.spent)}），${r.failed.length} 次失败：${r.failed[0].error}`, true);
         else toast(`已提交 ${r.submitted.length} 次（${yuan(r.spent)}），后台生成中，完成后自动出现`);
       });

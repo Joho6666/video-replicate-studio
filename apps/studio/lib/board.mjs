@@ -121,8 +121,9 @@ export function validateBoard(board) {
 export function normalizeBoard(input) {
   const board = JSON.parse(JSON.stringify(input));
   board.version = BOARD_VERSION;
+  delete board.yield; // view-only, added by the API
   board.aspect = board.aspect || '9:16';
-  board.shots = (board.shots || []).map(s => ({ ...s, status: STATUSES.includes(s.status) ? s.status : 'draft' }));
+  board.shots = (board.shots || []).map(s => { const { lint, ...rest } = s; return { ...rest, status: STATUSES.includes(s.status) ? s.status : 'draft' }; }); // `lint` is a view-only field added by the API
   board.total = board.shots.length ? Math.max(...board.shots.map(s => s.end || 0)) : 0;
   const est = estimateCost(board);
   board.shots.forEach(s => { s.cost = est.byShot[s.id] || { seconds: 0, unitPrice: 0, estimate: 0 }; });
@@ -194,8 +195,12 @@ export async function saveBoard(job, input, { trustQc = false, trustHooks = fals
       for (const s of board.shots) if (s.generate) { if (prev.get(s.id)) s.generate.task = prev.get(s.id); else delete s.generate.task; }
     }
     if (!trustQc) {
-      const prev = new Map((stored?.shots || []).map(s => [s.id, s.qc]));
-      for (const s of board.shots) { if (prev.get(s.id)) s.qc = prev.get(s.id); else delete s.qc; }
+      const prev = new Map((stored?.shots || []).map(s => [s.id, s]));
+      for (const s of board.shots) {
+        const old = prev.get(s.id);
+        if (old?.qc) s.qc = old.qc; else delete s.qc;
+        if (old?.qcLog) s.qcLog = old.qcLog; else delete s.qcLog; // the check history is server-made too
+      }
     }
     if (!trustHooks && Array.isArray(board.hooks)) {
       // a hook's voice file is server-made: keep it only while the text is unchanged, never accept it from the client
