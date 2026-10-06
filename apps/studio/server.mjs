@@ -10,7 +10,7 @@ import { buildExport, libtvMarkdown, REF_STYLES } from './lib/export.mjs';
 import { resumeGenerate } from './lib/generate.mjs';
 import { compileH3, h3Markdown, resumeH3, submitH3 } from './lib/h3.mjs';
 import { listVoices } from './lib/moss.mjs';
-import { autoStillsAction, boardFromDirectorJob, boardView, createScriptJob, exportJob, fillStills, generateJob, hooksJob, qcJob, renderJob, splitJob, voiceoverJob } from './lib/board-api.mjs';
+import { autoStillsAction, boardFromDirectorJob, boardView, createScriptJob, exportJob, fillStills, generateJob, hooksJob, qcJob, renderJob, splitJob, voicematchJob, voiceoverJob } from './lib/board-api.mjs';
 import { loadBoard, saveBoard } from './lib/board.mjs';
 import { buildFinal, generateVoice, voiceChars } from './lib/voice.mjs';
 import { ASSET_ROLES } from './lib/refs.mjs';
@@ -264,6 +264,7 @@ async function route(req, res) {
           return send(res, 200, await qcJob(job, { ids: Array.isArray(b.ids) ? b.ids.map(String) : null, again: Boolean(b.again) }));
         }
         if (sub === 'autostills' && req.method === 'POST') return send(res, 200, await autoStillsAction(job, await readJson(req)));
+        if (sub === 'voicematch' && req.method === 'POST') return send(res, 200, await voicematchJob(job, await readJson(req)));
         if (sub === 'voiceover' && req.method === 'POST') return send(res, 200, await voiceoverJob(job, await readJson(req)));
         if (sub === 'generate' && req.method === 'POST') return send(res, 200, await generateJob(job, await readJson(req)));
         if (sub === 'hooks' && req.method === 'POST') return send(res, 200, await hooksJob(job, await readJson(req)));

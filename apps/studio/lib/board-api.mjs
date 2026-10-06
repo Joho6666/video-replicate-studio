@@ -14,6 +14,7 @@ import { tools } from './env.mjs';
 import { ffrun } from './media.mjs';
 import { renderAnimatic } from './render.mjs';
 import { generateVoiceover, loadVoiceManifest, planVoiceover, voiceIdOf } from './voiceover.mjs';
+import { matchPlan, matchVoice } from './voicematch.mjs';
 import { runScriptSplit } from './script.mjs';
 
 export const MAX_STILLS_PER_CALL = 12;
@@ -299,6 +300,19 @@ export async function autoStillsAction(job, { action, ids, maxRetries, confirm, 
   if (action === 'run') {
     if (confirm !== true) throw httpError(400, '需要先在页面上确认张数');
     return run(job, { ids: list, maxRetries: retries, expect });
+  }
+  throw httpError(400, 'action 只能是 plan 或 run');
+}
+
+/**
+ * Smart voice matching. `plan` is free (who would be auditioned, what it costs); `run` needs `confirm` and the exact
+ * { voices, chars } the page showed. Voice clones are only auditioned with `includeClones`.
+ */
+export async function voicematchJob(job, { action, includeClones = false, apply = true, confirm, expect, run = matchVoice } = {}) {
+  if (action === 'plan') return matchPlan(job, { includeClones: includeClones === true });
+  if (action === 'run') {
+    if (confirm !== true) throw httpError(400, '需要先在页面上确认试听的音色数和字数');
+    return run(job, { includeClones: includeClones === true, apply: apply !== false, expect });
   }
   throw httpError(400, 'action 只能是 plan 或 run');
 }

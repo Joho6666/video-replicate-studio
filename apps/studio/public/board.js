@@ -10,7 +10,7 @@ const yuan = n => `¥${(Number(n) || 0).toFixed(2)}`;
 
 export async function mountBoard(root, job, ctx) {
   const { api, toast, esc, file, tc } = ctx;
-  let board = null, dirty = false, busy = '', lastPlan = null, lastExport = null, lastHookReject = null;
+  let board = null, dirty = false, busy = '', lastPlan = null, lastExport = null, lastHookReject = null, matchResult = null;
   const isScript = job.source.platform === 'script';
 
   const load = async () => {
@@ -79,6 +79,8 @@ export async function mountBoard(root, job, ctx) {
       <div class="bd-hooks-head"><b>钩子变体</b><span class="muted">开头第一句换成不同说法，批量剪辑时每个变体用一句；口型绑定原台词的口播镜头不会被换。</span>
         <div class="bd-actions"><button class="btn sm" id="bdHookWrite" ${busy ? 'disabled' : ''}>${busy === 'hookw' ? '写作中…' : hooks.length ? '重写钩子' : '写备选钩子'}</button>
         <button class="btn sm" id="bdHookVoice" ${busy || !pending.length ? 'disabled' : ''}>${busy === 'hookv' ? '配音中…' : `生成钩子配音（${pending.length} 条 · 约 ${hookChars(pending)} 字）`}</button></div></div>
+      <button class="btn sm" id="bdMatch" ${busy ? 'disabled' : ''}>${busy === 'match' ? '试听匹配中…' : '智能选音色'}</button>
+      ${matchResult ? matchPanel() : ''}
       <label class="bd-budget">钩子音色 ID <input id="bdHookVoiceId" value="${esc(board.voice?.id || '')}" placeholder="MOSI 音色 ID，需与正片配音一致" style="width:300px"></label>
       ${hooks.map((h, i) => `<div class="bd-hook" data-h="${i}"><span class="bd-hook-id">${esc(h.id)}</span><textarea rows="2" data-hf="text">${esc(h.text)}</textarea>
         <span class="bd-hook-meta">${esc(h.angle || '')} · ${h.voice ? `已配音 ${h.voice.seconds}s` : '未配音'}</span></div>`).join('')}
@@ -180,6 +182,7 @@ export async function mountBoard(root, job, ctx) {
     root.querySelector('#bdSave').onclick = save;
     root.querySelector('#bdStills').onclick = () => generate(null, false);
     root.querySelector('#bdAuto').onclick = () => autoRun();
+    root.querySelector('#bdMatch').onclick = () => matchRun();
     root.querySelector('#bdVoice').onclick = () => voiceRun();
     root.querySelector('#bdGen').onclick = () => genRun();
     const redo = root.querySelector('#bdRedo');
@@ -224,6 +227,31 @@ export async function mountBoard(root, job, ctx) {
       if (r.failed?.length) toast(`${r.generated.length} 条完成，${r.failed.length} 条失败：${r.failed[0].error}`, true);
       else toast(`已为 ${r.generated.length} 条钩子配音`);
     });
+  }
+
+  function matchPanel() {
+    const r = matchResult;
+    const top = r.ranked.filter(x => !x.reject).slice(0, 3);
+    return `<div class="bd-note"><b>声音目标</b>：${esc(r.target.gender === 'any' ? '不限性别' : r.target.gender === 'female' ? '女声' : '男声')} · 音高${esc(r.target.pitch)} · 语速${esc(r.target.pace)} · ${esc(r.target.warmth)}（${esc(r.target.why)}）<br>
+      ${top.map((x, i) => `${i === 0 ? '✅ 已选用' : `备选 ${i}`}：${esc(x.name)} · ${x.score} 分 · ${x.gender === 'female' ? '偏女声' : x.gender === 'male' ? '偏男声' : '中性'} · 音高 ${x.f0} Hz · 语速 ${x.pace}/秒<br><audio controls preload="none" src="${file(job.id, x.file)}" style="height:28px;margin:2px 0 6px"></audio>`).join('<br>')}
+      ${r.ranked.some(x => x.reject) ? `<span class="muted">未参与排名：${r.ranked.filter(x => x.reject).map(x => esc(x.name)).join('、')}</span>` : ''}</div>`;
+  }
+
+  async function matchRun() {
+    if (busy) return;
+    try {
+      if (dirty) await persist();
+      const p = await api(`/api/jobs/${job.id}/board/voicematch`, { method: 'POST', json: { action: 'plan' } });
+      if (!p.voices) return toast('账号里没有可试听的音色', true);
+      const note = p.skippedClones ? `
+（另有 ${p.skippedClones} 个"克隆音色"默认不参与，因为无法确认那个人的声音已授权）` : '';
+      if (!confirm(`将让 ${p.voices} 个音色各念同一句试听词（共约 ${p.chars} 字，约 ¥${p.yuan}），再按台词风格自动挑最合适的，并设为这张镜头表的音色。${note}
+继续吗？`)) return;
+      run('match', async () => {
+        matchResult = await api(`/api/jobs/${job.id}/board/voicematch`, { method: 'POST', json: { action: 'run', confirm: true, expect: { voices: p.voices, chars: p.chars } } });
+        toast(matchResult.applied ? '已选好音色，可以在下面试听' : '没有可用的音色', !matchResult.applied);
+      });
+    } catch (e) { toast(e.message, true); }
   }
 
   async function autoRun() {

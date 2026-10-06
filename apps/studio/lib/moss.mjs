@@ -81,11 +81,11 @@ export function transcriptLines(transcript, from = 0, to = Infinity) {
 /** Visible characters the speech API bills for (pause tags excluded). */
 export const billedChars = text => String(text || '').replace(/\[pause [\d.]+s\]/g, '').replace(/\s/g, '').length;
 
-/** One voice-over clip fitted to `seconds`; returns the saved mp3 path. */
+/** One voice-over clip fitted to `seconds` (omit it for the voice's natural pace); returns the saved mp3 path. */
 export async function speak({ text, voiceId, seconds, language, out }) {
   const res = await fetch(`${config.moss.base}/v1/audio/speech`, {
     method: 'POST', headers: { ...auth(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: config.moss.ttsModel, input: text, voice_id: voiceId, language, expected_duration_sec: Math.max(0.5, Math.round(seconds * 100) / 100), response_format: 'mp3' }),
+    body: JSON.stringify({ model: config.moss.ttsModel, input: text, voice_id: voiceId, language, ...(seconds ? { expected_duration_sec: Math.max(0.5, Math.round(seconds * 100) / 100) } : {}), response_format: 'mp3' }), // no `seconds` = the voice's natural pace
     signal: AbortSignal.timeout(180_000),
   });
   if (!res.ok) throw await failure(res, '配音');
