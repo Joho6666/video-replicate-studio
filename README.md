@@ -43,6 +43,11 @@ WebUI：`pnpm crawler:api`（:8080）+ `pnpm dev:webui`（:5173）。
 抓取（本仓库）→ 转录口播/字幕 → 提示词工作台（Video 1 / Image N 映射）→ LibTV / Wan 3.0 生成 → Hypit 拼接包装
 ```
 
+## 白膜出片（原创空间感镜头）
+
+Blender 白膜锁空间与机位 → 图像编辑写实化首帧 → 图生视频 → 拼接。用于原创空间感镜头，**不用于换人复刻**。
+流程与脚本见 `workflows/whitemodel-scene/`，实测与成本见 `docs/WHITEMODEL_2026-10-07.md`。
+
 ## 复刻 Studio（演示界面）
 
 ```bash
