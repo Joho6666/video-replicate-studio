@@ -34,3 +34,10 @@ test('retryPrompt: attempt 1 removes negations, attempt 2 also adds a positive c
   assert.equal(retryPrompt(`a mug, ${POSITIVE_FALLBACK}`, 2), `a mug, ${POSITIVE_FALLBACK}`);
   assert.doesNotMatch(retryPrompt('a mug, no phone', 2), /\bno\b/);
 });
+
+test('ordinary Chinese words that contain 无 / 别 are not negations (无缝, 无限, 特别, 区别), but real commands still are', () => {
+  assert.deepEqual(negations('粉色液体无缝变成一股水柱，无限延伸，特别明亮，区别于普通镜头'), []);
+  assert.equal(negations('桌上一个杯子，别出现手机').length > 0, true);
+  assert.equal(negations('画面里无人').length, 1);
+  assert.equal(negations('不要手机').length, 1);
+});

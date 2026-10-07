@@ -59,6 +59,8 @@ export const config = {
   tikhub: { key: env.TIKHUB_API_KEY || '', base: (env.TIKHUB_BASE_URL || 'https://api.tikhub.io').replace(/\/$/, '') },
   // H3 needs a pay-as-you-go key; mainland accounts use api.minimaxi.com, global ones api.minimax.io.
   minimax: { key: env.MINIMAX_API_KEY || '', base: (env.MINIMAX_BASE_URL || 'https://api.minimaxi.com').replace(/\/$/, ''), model: env.MINIMAX_VIDEO_MODEL || 'MiniMax-H3' },
+  // Wan 3.0 (Alibaba DashScope, async video generation).
+  wan: { key: env.WAN_API_KEY || '', base: (env.WAN_BASE_URL || 'https://dashscope.aliyuncs.com').replace(/\/$/, ''), model: env.WAN_VIDEO_MODEL || 'wan3.0-video' },
   // MOSI (模思智能): soundtrack transcription and timed voice-over.
   moss: { key: env.MOSS_API_KEY || '', base: (env.MOSS_BASE_URL || 'https://api.mosi.cn').replace(/\/$/, ''), ttsModel: env.MOSS_TTS_MODEL || 'moss-tts-1.5-flash' },
 };

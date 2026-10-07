@@ -99,10 +99,11 @@ export function stripTimes(shot) {
 export async function extractKeyframes(file, shots, outDir) {
   await mkdir(outDir, { recursive: true });
   // A seek within ~0.1s of the end of the file can decode no frame at all; step back until one lands.
-  const grab = async (t, out, height, floor) => {
+  const grab = async (t, out, vf, floor) => {
     await rm(out, { force: true });
     for (let at = t; ; at = Math.max(floor, at - 0.2)) {
-      await run(tools.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-ss', at.toFixed(2), '-i', file, '-frames:v', '1', '-vf', `scale=-2:${height}`, '-q:v', '3', out]);
+      // newer ffmpeg exits non-zero ("received no packets") when the seek lands past the last frame; older ones exit 0 with no file
+      try { await run(tools.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-ss', at.toFixed(2), '-i', file, '-frames:v', '1', '-vf', vf, '-q:v', '3', out]); } catch (error) { if (at <= floor) throw error; }
       if (existsSync(out)) return;
       if (at <= floor) throw new Error(`第 ${path.basename(out)} 帧截取失败`);
     }
@@ -111,10 +112,10 @@ export async function extractKeyframes(file, shots, outDir) {
     const n = String(shot.index).padStart(2, '0');
     const times = stripTimes(shot);
     const name = `shot-${n}.jpg`;
-    await run(tools.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-ss', times[1].toFixed(2), '-i', file, '-frames:v', '1', '-vf', "scale='if(gt(iw,ih),640,-2)':'if(gt(iw,ih),-2,640)'", '-q:v', '3', path.join(outDir, name)]);
+    await grab(times[1], path.join(outDir, name), "scale='if(gt(iw,ih),640,-2)':'if(gt(iw,ih),-2,640)'", shot.start);
     const parts = times.map((_, i) => path.join(outDir, `.part-${n}-${i}.jpg`));
-    for (let i = 0; i < 3; i++) await grab(times[i], parts[i], 480, shot.start);
-    await run(tools.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', ...parts.flatMap(p => ['-i', p]), '-filter_complex', '[0][1][2]hstack=inputs=3', '-q:v', '3', path.join(outDir, `strip-${n}.jpg`)]);
+    for (let i = 0; i < 3; i++) await grab(times[i], parts[i], 'scale=-2:480', shot.start);
+    await run(tools.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', ...parts.flatMap(p => ['-i', p]), '-filter_complex', '[0][1][2]hstack=inputs=3,format=yuvj420p', '-q:v', '3', path.join(outDir, `strip-${n}.jpg`)]);
     for (const p of parts) await rm(p, { force: true });
     shot.keyframe = `shots/${name}`;
     shot.keyframeAt = times[1];

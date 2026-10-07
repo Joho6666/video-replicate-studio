@@ -6,7 +6,8 @@
 const ALLOWED = /^(?:text|texts|words?|watermarks?|logos?|subtitles?|captions?|letters?|writing|brand names?|signature|blur|blurry|noise|artifacts?)$/i;
 const ALLOWED_ZH = /^(?:文字|文本|字幕|水印|logo|商标|标志)/i;
 const NEG_EN = /\b(?:no|not|without|never|don'?t|doesn'?t|avoid|avoiding|nothing)\b\s+(?:any\s+|a\s+|an\s+|the\s+|visible\s+|other\s+)*([a-z][\w'-]*(?:\s+[a-z][\w'-]*)?)/gi;
-const NEG_ZH = /(?:不要|别|无|没有|不带|不出现|避免|禁止)\s*([^，。,.；;、\s]{1,8})/g;
+// 无 / 别 are also ordinary words (无缝, 无限, 特别, 区别): 无 only counts when it is not part of those, 别 only as a command at the start of a clause
+const NEG_ZH = /(?:不要|(?<![特区分类告识差辨])别(?=[^，。,.；;、\s])(?:(?<=^别)|(?<=[，。,.；;\s]别))|无(?!缝|限|比|论|数|意|疑|声|处|穷|尽|人机|论)|没有|不带|不出现|避免|禁止)\s*([^，。,.；;、\s]{1,8})/g;
 
 /** Negated objects found in a prompt that are NOT on the safe list. */
 export function negations(prompt) {

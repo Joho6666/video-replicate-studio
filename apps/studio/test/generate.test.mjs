@@ -8,6 +8,7 @@ import test from 'node:test';
 const tmp = await mkdtemp(path.join(os.tmpdir(), 'studio-gen-'));
 process.env.STUDIO_DATA_DIR = tmp;
 process.env.MINIMAX_API_KEY = 'test-key';
+process.env.WAN_API_KEY = 'wan-test-key';
 delete process.env.GENERATE_MAX_CNY;
 const gen = await import('../lib/generate.mjs');
 const api = await import('../lib/board-api.mjs');
@@ -33,10 +34,9 @@ test('planGenerate: one call per group, priced by seconds, blocked reasons are e
     shot('S06', 22, 24), shot('S07', 24, 27, { generate: { group: 'S06' } }),
   ]);
   const p = gen.planGenerate(await loadBoard(job));
-  assert.deepEqual(p.pending.map(c => [c.shots.join('+'), c.seconds, c.cost]), [['S01', 4, 2], ['S02', 7, 3.5], ['S06+S07', 5, 2.5]]);
-  assert.equal(p.total, 8);
+  assert.deepEqual(p.pending.map(c => [c.shots.join('+'), c.provider, c.seconds, c.cost]), [['S01', 'h3', 4, 2], ['S02', 'h3', 7, 3.5], ['S03', 'wan3', 5, 1.5], ['S06+S07', 'h3', 5, 2.5]]);
+  assert.equal(p.total, 9.5, 'Wan 480P: a 4 s shot is billed as the 5 s minimum at ¥0.3/s');
   const why = Object.fromEntries(p.blocked.map(c => [c.shots.join('+'), c.blocked]));
-  assert.match(why.S03, /wan3 还没有接入/);
   assert.match(why.S04, /已经有视频片段/);
   assert.deepEqual(gen.planGenerate(await loadBoard(job), { ids: ['S02'] }).pending.map(c => c.shots[0]), ['S02']);
 });
@@ -159,4 +159,88 @@ test('generateJob: plan is free, submit needs confirm', async () => {
   const r = await api.generateJob(job, { action: 'submit', confirm: true, expect: { calls: 1, total: 2 }, submit: async (j, o) => ({ called: o.expect }) });
   assert.deepEqual(r.called, { calls: 1, total: 2 });
   await assert.rejects(() => api.generateJob(job, { action: 'x' }), /action/);
+});
+
+test('reference photos: the presenter / product images ride along as reference_image items, in the requested order; a missing one blocks the call before anything is billed', async () => {
+  const withRefs = (id, start, end, refs) => ({ ...shot(id, start, end), generate: { provider: 'h3', resolution: '768P', group: id, refs } });
+  const job = await makeJob([withRefs('S01', 0, 4, ['product', 'presenter']), withRefs('S02', 4, 8, ['presenter'])], { presenter: { image: 'assets/p.jpg' }, product: { image: 'assets/bottle.png' } });
+  const root = jobDir(job.id);
+  await mkdir(path.join(root, 'assets'), { recursive: true });
+  await writeFile(path.join(root, 'assets/p.jpg'), 'PRESENTER');
+  await writeFile(path.join(root, 'assets/bottle.png'), 'BOTTLE');
+  const sent = [];
+  const fetchImpl = async (url, init) => { sent.push(JSON.parse(init.body)); return { ok: true, status: 200, json: async () => ({ task_id: `T${sent.length}` }) }; };
+  const r = await gen.submitGenerate(job, { expect: { calls: 2, total: 4 }, fetchImpl, watch: noWatch });
+  assert.equal(r.submitted.length, 2);
+  const [a, b] = sent;
+  assert.deepEqual(a.content.map(c => c.type), ['text', 'image_url', 'image_url']);
+  assert.deepEqual(a.content.slice(1).map(c => c.role), ['reference_image', 'reference_image']);
+  assert.match(a.content[1].image_url.url, /^data:image\/png;base64,/);
+  assert.equal(Buffer.from(a.content[1].image_url.url.split(',')[1], 'base64').toString(), 'BOTTLE', 'first ref = product, as asked');
+  assert.equal(Buffer.from(a.content[2].image_url.url.split(',')[1], 'base64').toString(), 'PRESENTER');
+  assert.match(b.content[1].image_url.url, /^data:image\/jpeg;base64,/);
+  assert.equal(b.content.length, 2);
+
+  const missing = await makeJob([withRefs('S01', 0, 4, ['product'])]);
+  const p = gen.planGenerate(await loadBoard(missing));
+  assert.equal(p.pending.length, 0);
+  assert.match(p.blocked[0].blocked, /缺少产品参考图/);
+  const calls = [];
+  await assert.rejects(() => gen.submitGenerate(missing, { expect: { calls: 0, total: 0 }, fetchImpl: async () => { calls.push(1); return { ok: true, json: async () => ({}) }; }, watch: noWatch }), /没有可提交的.*缺少产品参考图/);
+  assert.equal(calls.length, 0);
+  assert.equal((await loadBoard(missing)).shots[0].generate.task, undefined, 'no ledger entry for a call that was never sent');
+});
+
+test('Wan 3.0: DashScope request shape, task id, polling and the ledger record which provider was used', async () => {
+  const wan = (id, start, end, extra = {}) => ({ ...shot(id, start, end), generate: { provider: 'wan3', resolution: '720P', group: id, ...extra } });
+  const job = await makeJob([wan('S01', 0, 5)]);
+  const sent = [];
+  const fetchImpl = async (url, init) => { sent.push({ url, headers: init.headers, body: JSON.parse(init.body) }); return { ok: true, status: 200, json: async () => ({ output: { task_id: 'WAN-1', task_status: 'PENDING' } }) }; };
+  const p = gen.planGenerate(await loadBoard(job));
+  assert.deepEqual([p.pending[0].seconds, p.pending[0].cost], [5, 3], '5 s at 720P = ¥3.00');
+  const r = await gen.submitGenerate(job, { expect: { calls: 1, total: 3 }, fetchImpl, watch: noWatch });
+  assert.deepEqual(r.submitted.map(x => x.taskId), ['WAN-1']);
+  const req = sent[0];
+  assert.match(req.url, /\/api\/v1\/services\/aigc\/video-generation\/video-synthesis$/);
+  assert.equal(req.headers['X-DashScope-Async'], 'enable');
+  assert.match(req.headers.Authorization, /^Bearer wan-test-key$/);
+  assert.equal(req.body.model, 'wan3.0-video');
+  assert.deepEqual([req.body.parameters.resolution, req.body.parameters.duration, req.body.parameters.ratio, req.body.parameters.watermark], ['720P', 5, '9:16', false]);
+  assert.equal(req.body.input.prompt, 'prompt S01');
+  assert.equal(req.body.input.media, undefined, 'no reference images asked for');
+  const task = (await loadBoard(job)).shots[0].generate.task;
+  assert.deepEqual([task.state, task.taskId, task.provider], ['submitted', 'WAN-1', 'wan3']);
+  // polling goes to the DashScope task endpoint and downloads video_url
+  const urls = [];
+  const poll = async url => { urls.push(url); return { status: 200, json: async () => ({ output: { task_status: 'SUCCEEDED', video_url: 'https://dash/x.mp4' }, usage: { duration: 5 } }) }; };
+  const fetched = [];
+  assert.equal(await gen.pollGenerate(job, 'S01', { fetchImpl: poll, fetchFile: async (u, out) => { fetched.push(u); await mkdir(path.dirname(out), { recursive: true }); await writeFile(out, 'mp4'); } }), true);
+  assert.match(urls[0], /\/api\/v1\/tasks\/WAN-1$/);
+  assert.deepEqual(fetched, ['https://dash/x.mp4']);
+  const done = (await loadBoard(job)).shots[0];
+  assert.equal(done.generate.task.state, 'succeeded');
+  assert.ok(done.source.clip.file);
+});
+
+test('Wan 3.0: references go in input.media, moderation failures are recorded with their code, a rejection is not billed, a missing key blocks the call', async () => {
+  const job = await makeJob([{ ...shot('S01', 0, 5), generate: { provider: 'wan3', resolution: '480P', group: 'S01', refs: ['presenter'] } }], { presenter: { image: 'assets/p.jpg' } });
+  const root = jobDir(job.id);
+  await mkdir(path.join(root, 'assets'), { recursive: true });
+  await writeFile(path.join(root, 'assets/p.jpg'), 'PRESENTER');
+  let body;
+  const ok = async (url, init) => { body = JSON.parse(init.body); return { ok: true, status: 200, json: async () => ({ output: { task_id: 'WAN-2' } }) }; };
+  await gen.submitGenerate(job, { expect: { calls: 1, total: 1.5 }, fetchImpl: ok, watch: noWatch });
+  assert.deepEqual(body.input.media.map(m => m.type), ['reference_image']);
+  assert.match(body.input.media[0].url, /^data:image\/jpeg;base64,/);
+  const fail = async () => ({ status: 200, json: async () => ({ output: { task_status: 'FAILED', code: 'DataInspectionFailed', message: 'Input data may contain inappropriate content' } }) });
+  await gen.pollGenerate(job, 'S01', { fetchImpl: fail });
+  const t = (await loadBoard(job)).shots[0].generate.task;
+  assert.equal(t.state, 'failed');
+  assert.match(t.error, /DataInspectionFailed/);
+  // a rejected request (4xx, no task id) is recorded as rejected and can be retried
+  const job2 = await makeJob([{ ...shot('S01', 0, 5), generate: { provider: 'wan3', resolution: '480P', group: 'S01' } }]);
+  const r = await gen.submitGenerate(job2, { expect: { calls: 1, total: 1.5 }, fetchImpl: async () => ({ ok: false, status: 400, json: async () => ({ code: 'InvalidParameter', message: 'bad duration' }) }), watch: noWatch });
+  assert.match(r.failed[0].error, /Wan HTTP 400.*bad duration.*InvalidParameter/);
+  assert.equal((await loadBoard(job2)).shots[0].generate.task.state, 'rejected');
+  assert.equal(gen.planGenerate(await loadBoard(job2)).pending.length, 1, 'rejected = nothing was created, so it may be retried');
 });

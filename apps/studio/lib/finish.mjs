@@ -13,6 +13,8 @@ import { ffrun, probe } from './media.mjs';
 export const STYLES = {
   clean: { label: '干净', eq: 'contrast=1.04:saturation=1.06', balance: null, vignette: null, grain: 2, sfx: 0.4, impact: 0.5, loudness: -14 },
   cinematic: { label: '电影感', eq: 'contrast=1.10:saturation=0.96:gamma=0.98', balance: 'rs=-0.03:bs=0.05:rh=0.05:bh=-0.04', vignette: 'PI/5', grain: 4, sfx: 0.45, impact: 0.7, loudness: -14 },
+  // live-action feel: less saturation, a little more contrast, visible film grain, a soft vignette, quiet effects
+  realistic: { label: '写实', eq: 'contrast=1.07:saturation=0.8:gamma=1.02', balance: 'rs=0.03:bs=-0.02:rh=0.02:bh=-0.03', vignette: 'PI/6', grain: 9, sfx: 0.3, impact: 0.4, loudness: -14 },
   warm: { label: '暖调', eq: 'contrast=1.06:saturation=1.12', balance: 'rs=0.04:bs=-0.04', vignette: 'PI/7', grain: 3, sfx: 0.4, impact: 0.55, loudness: -14 },
 };
 export const DEFAULT_STYLE = 'cinematic';
