@@ -10,10 +10,10 @@ import { tools } from './env.mjs';
 export const MODEL = 'wan2.2-animate-mix';
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-export async function uploadTemp(file, name, { fetchImpl = fetch } = {}) {
+export async function uploadTemp(file, name, { fetchImpl = fetch, model = MODEL } = {}) {
   const { key, base } = config.wan;
   if (!key) throw new Error('缺少 WAN_API_KEY');
-  const p = await (await fetchImpl(`${base}/api/v1/uploads?action=getPolicy&model=${MODEL}`, { headers: { Authorization: `Bearer ${key}` } })).json();
+  const p = await (await fetchImpl(`${base}/api/v1/uploads?action=getPolicy&model=${model}`, { headers: { Authorization: `Bearer ${key}` } })).json();
   const d = p.data;
   if (!d) throw new Error(`上传凭证获取失败：${JSON.stringify(p).slice(0, 200)}`);
   const objectKey = `${d.upload_dir}/${name}`;
@@ -26,9 +26,9 @@ export async function uploadTemp(file, name, { fetchImpl = fetch } = {}) {
 }
 
 /** Cuts [start, end) of the source into a standalone clip (re-encoded so the cut is frame-accurate). */
-export async function cutWindow(source, { start, end }, out) {
+export async function cutWindow(source, { start, end }, out, { vf = 'fps=30,scale=720:1280' } = {}) {
   await mkdir(path.dirname(out), { recursive: true });
-  await ffrun(tools.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-ss', String(start), '-t', String(end - start), '-i', source, '-an', '-vf', 'fps=30,scale=720:1280', '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', out]);
+  await ffrun(tools.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-ss', String(start), '-t', String(end - start), '-i', source, '-an', '-vf', vf, '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', out]);
   return out;
 }
 

@@ -49,6 +49,11 @@ const usable = p => (p && existsSync(p) ? p : null);
 export const tools = {
   ffmpeg: usable(configured(env.FFMPEG_PATH)) || bundled('ffmpeg') || which(['ffmpeg.exe', 'ffmpeg']),
   ffprobe: usable(configured(env.FFPROBE_PATH)) || bundled('ffprobe') || which(['ffprobe.exe', 'ffprobe']),
+  // person-swap composite (all optional; scripts/py/person_swap.py needs python + opencv + numpy + onnxruntime)
+  python: usable(configured(env.PYTHON_PATH)) || which(['python.exe', 'python3', 'python']),
+  rife: usable(configured(env.RIFE_PATH)),                 // rife-ncnn-vulkan(.exe); frame interpolation 15 -> 25/30 fps
+  realesrgan: usable(configured(env.REALESRGAN_PATH)),     // realesrgan-ncnn-vulkan(.exe); AI upscaling
+  rvmModel: usable(configured(env.RVM_MODEL)),             // rvm_mobilenetv3_fp32.onnx; person matting
   crawlerPython: [path.join(CRAWLER_DIR, '.venv', 'Scripts', 'python.exe'), path.join(CRAWLER_DIR, '.venv', 'bin', 'python')].find(existsSync) || null,
 };
 

@@ -2,6 +2,8 @@
 // The fixed steps after a person-swap (wan2.2-animate-mix):
 //   review <swapped video> <source video> [--bad 8.3-8.9,10.7-11.4] [--offset 0] [--crop x,y,w,h] [--roi x,y,w,h] [--out dir]
 //        overview sheet of the whole clip + dense sheets for the bad windows and for every similar moment in the source
+//   check  <raw swap output> <the clip it was made from> [--offset 0]
+//        free coarse alarm: is the background still close to the clip? exit code 3 = very different (look at the review sheet first; not a verdict)
 //   quote  <swapped video> --bad 8.3-8.9 [--mode wan-pro] [--ledger file] [--cap 10]
 //        which windows would be redone and what it costs (nothing is sent)
 //   patch  <swapped video> <source video> <model image> --bad … --ledger file --out dir --confirm --expect-windows N --expect-total X [--mode wan-pro] [--offset 0]
@@ -13,6 +15,7 @@ import { DATA_DIR } from '../lib/env.mjs';
 import { probe } from '../lib/media.mjs';
 import { RATES, loadLedger, planRemedy, runRemedy } from '../lib/remedy.mjs';
 import { reviewSwap } from '../lib/swap-review.mjs';
+import { backgroundDrift, driftVerdict } from '../lib/swap-check.mjs';
 
 const args = process.argv.slice(2);
 const cmd = args.shift();
@@ -32,6 +35,13 @@ try {
     const r = await reviewSwap({ output, source, bad: ranges(flag('bad')), sourceOffset: Number(flag('offset') || 0), crop: quad(flag('crop')), roi: quad(flag('roi')), outDir });
     console.log(`✔ 总览 ${r.overview.count} 张${r.focus ? `，重点 ${r.focus.count} 张` : ''} → ${r.page}`);
     console.log(r.candidates.length ? `相似动作候选（只是候选，请看过再定）：${r.candidates.map(c => `${c.start.toFixed(2)}–${c.end.toFixed(2)}s`).join('  ')}` : '没有相似动作候选');
+  } else if (cmd === 'check') {
+    const [output, source] = args;
+    const v = driftVerdict(await backgroundDrift({ output, source, sourceOffset: Number(flag('offset') || 0), workDir: path.join(DATA_DIR, 'tmp', 'drift') }));
+    console.log(`背景漂移（顶部画面差，0–255）：中位数 ${v.median}  → ${{ ok: '✔ 背景和原片接近', warn: '⚠ 有一段背景和原片差别较大', fail: '✖ 背景和原片差别很大（可能被重画，也可能只是整体色调变了）' }[v.verdict]}`);
+    for (const w of v.windows) console.log(`  ${w.start.toFixed(1)}–${w.end.toFixed(1)} s 背景差异大`);
+    if (v.verdict !== 'ok') console.log('这只是粗报警：先看复核拼图再决定要不要贴回原片背景。参考图背景和原片场景不一致时更容易出这种情况。');
+    process.exit(v.verdict === 'fail' ? 3 : 0);
   } else if (cmd === 'quote' || cmd === 'patch') {
     const output = args.shift();
     const mode = flag('mode') || 'wan-pro', ledgerFile = flag('ledger') || path.join(DATA_DIR, 'remedy.json'), cap = Number(flag('cap') || 10);
@@ -58,7 +68,7 @@ try {
       process.exit(res.failed.length ? 1 : 0);
     }
   } else {
-    console.log('用法：node scripts/swap-review.mjs <review|quote|patch> …（详见文件头）');
+    console.log('用法：node scripts/swap-review.mjs <review|check|quote|patch> …（详见文件头）');
     process.exit(2);
   }
 } catch (e) { console.log(`✖ ${e.message}`); process.exit(1); }
