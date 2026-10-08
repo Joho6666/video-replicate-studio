@@ -244,3 +244,47 @@ test('Wan 3.0: references go in input.media, moderation failures are recorded wi
   assert.equal((await loadBoard(job2)).shots[0].generate.task.state, 'rejected');
   assert.equal(gen.planGenerate(await loadBoard(job2)).pending.length, 1, 'rejected = nothing was created, so it may be retried');
 });
+
+test('Wan 2.7 video edit: input and output seconds are both billed, the window is 2–10 s, the source clip is prepared BEFORE the ledger write, the request carries video + reference images', async () => {
+  const edit = (id, start, end, extra = {}) => ({ ...shot(id, start, end), generate: { provider: 'wan27edit', resolution: '720P', group: id, refs: ['presenter'], ...extra } });
+  const job = await makeJob([edit('E1', 0, 7), edit('E2', 7, 9, { group: 'E2' })], { presenter: { image: 'assets/p.jpg' } });
+  const root = jobDir(job.id);
+  await mkdir(path.join(root, 'assets'), { recursive: true });
+  await writeFile(path.join(root, 'assets/p.jpg'), 'PRESENTER');
+  const p = gen.planGenerate(await loadBoard(job));
+  const byShot = Object.fromEntries(p.pending.map(c => [c.shots.join('+'), [c.seconds, c.cost]]));
+  assert.deepEqual(byShot.E1, [7, 8.4], '7 s of picture = 7 s in + 7 s out at ¥0.6 = ¥8.40');
+  assert.deepEqual(byShot.E2, [2, 2.4]);
+  // 11 s in one group: over the 10 s limit, the board refuses it
+  await assert.rejects(makeJob([edit('E3', 9, 20, { group: 'E3' })]), /上限 10s/);
+
+  // a clean board: only E1
+  const job2 = await makeJob([edit('E1', 0, 7)], { presenter: { image: 'assets/p.jpg' } });
+  await mkdir(path.join(jobDir(job2.id), 'assets'), { recursive: true });
+  await writeFile(path.join(jobDir(job2.id), 'assets/p.jpg'), 'PRESENTER');
+  const sent = [], order = [];
+  const original = gen.PROVIDERS.wan27edit.prepare;
+  gen.PROVIDERS.wan27edit.prepare = async ({ shots }) => { order.push('prepare'); const b = await loadBoard(job2); assert.equal(b.shots[0].generate.task, undefined, 'nothing written to the ledger yet'); return { videoUrl: 'oss://dashscope-instant/x/clip.mp4', start: shots[0].start, end: shots[0].end }; };
+  try {
+    const fetchImpl = async (url, init) => { order.push('request'); sent.push({ url, headers: init.headers, body: JSON.parse(init.body) }); return { ok: true, status: 200, json: async () => ({ output: { task_id: 'EDIT-1' } }) }; };
+    const r = await gen.submitGenerate(job2, { expect: { calls: 1, total: 8.4 }, fetchImpl, watch: noWatch });
+    assert.deepEqual(order, ['prepare', 'request']);
+    assert.deepEqual(r.submitted.map(x => x.taskId), ['EDIT-1']);
+    const req = sent[0];
+    assert.match(req.url, /\/video-synthesis$/);
+    assert.equal(req.headers['X-DashScope-OssResourceResolve'], 'enable');
+    assert.equal(req.body.model, 'wan2.7-videoedit');
+    assert.deepEqual(req.body.input.media.map(m => m.type), ['video', 'reference_image']);
+    assert.equal(req.body.input.media[0].url, 'oss://dashscope-instant/x/clip.mp4');
+    assert.deepEqual([req.body.parameters.resolution, req.body.parameters.audio_setting, req.body.parameters.watermark], ['720P', 'origin', false]);
+    assert.equal((await loadBoard(job2)).shots[0].generate.task.provider, 'wan27edit');
+  } finally { gen.PROVIDERS.wan27edit.prepare = original; }
+});
+
+test('Wan 2.7 video edit: a job without a source video is refused before anything is billed or written', async () => {
+  const job = await makeJob([{ ...shot('E1', 0, 4), generate: { provider: 'wan27edit', resolution: '720P', group: 'E1' } }]);
+  let sent = 0;
+  await assert.rejects(gen.submitGenerate(job, { expect: { calls: 1, total: 4.8 }, fetchImpl: async () => { sent++; return { ok: true, status: 200, json: async () => ({}) }; }, watch: noWatch }), /原片/);
+  assert.equal(sent, 0);
+  assert.equal((await loadBoard(job)).shots[0].generate.task, undefined);
+});

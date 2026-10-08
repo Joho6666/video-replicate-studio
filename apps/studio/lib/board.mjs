@@ -18,8 +18,10 @@ export const STATUSES = ['draft', 'approved', 'queued', 'done', 'failed'];
 export const PRICES = {
   h3: { '768P': 0.5, '2K': null },
   wan3: { '480P': 0.3, '720P': 0.6, '1080P': 1.2 },
+  // wan2.7-videoedit bills the INPUT seconds as well as the output seconds (¥0.6 / ¥1.0 per second each), so the price per output second is doubled
+  wan27edit: { '720P': 1.2, '1080P': 2.0 },
 };
-export const LIMITS = { h3: { min: 4, max: 15 }, wan3: { min: 5, max: 15 } };
+export const LIMITS = { h3: { min: 4, max: 15 }, wan3: { min: 5, max: 15 }, wan27edit: { min: 2, max: 10 } };
 
 const round2 = n => Math.round(n * 100) / 100;
 const num = v => typeof v === 'number' && Number.isFinite(v);

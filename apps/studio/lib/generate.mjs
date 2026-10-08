@@ -13,6 +13,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { PRICES, billableSeconds, generateGroups, loadBoard, saveBoard } from './board.mjs';
 import { config, env } from './env.mjs';
+import { cutWindow, uploadTemp } from './animate-mix.mjs';
 import { jobDir, listJobs, loadJob } from './jobs.mjs';
 
 export const MAX_CALLS_PER_REQUEST = 6;
@@ -100,6 +101,40 @@ export const PROVIDERS = {
       return { state: 'running' };
     },
   },
+  /**
+   * wan2.7-videoedit: edits the ORIGINAL video of the job (its window = the group's shots) with an instruction and up to
+   * 4 reference images — e.g. "replace the woman in the video with the woman in image 1". Unlike Wan Animate it does not
+   * need a frontal face, so back views, close-ups and rapid cuts work. 2–10 s per call; billed on input + output seconds.
+   */
+  wan27edit: {
+    label: 'Wan 2.7 视频编辑',
+    key: () => config.wan.key,
+    keyHint: 'Wan API Key 未配置（apps/studio/.env.local 的 WAN_API_KEY，DashScope 的 Key）',
+    /** Cuts the shots' window out of the job's source video and uploads it (before anything is billed or written to the ledger). */
+    async prepare({ job, shots }) {
+      const start = Math.min(...shots.map(s => s.start)), end = Math.max(...shots.map(s => s.end));
+      if (!job.media?.video) throw httpError(400, '这个任务没有原片，视频编辑需要原片');
+      const source = path.join(jobDir(job.id), job.media.video);
+      if (!existsSync(source)) throw httpError(400, '原片文件不见了');
+      const out = path.join(jobDir(job.id), 'edit-src', `${shots.map(s => s.id).join('+')}.mp4`);
+      await cutWindow(source, { start, end }, out, { vf: 'scale=trunc(iw/2)*2:trunc(ih/2)*2' });
+      return { videoUrl: await uploadTemp(out, `${job.id}-${shots[0].id}.mp4`, { model: 'wan2.7-videoedit' }), start, end };
+    },
+    request: ({ call, shots, images, prep }) => ({
+      url: `${config.wan.base}/api/v1/services/aigc/video-generation/video-synthesis`,
+      headers: { Authorization: `Bearer ${config.wan.key}`, 'Content-Type': 'application/json', 'X-DashScope-Async': 'enable', 'X-DashScope-OssResourceResolve': 'enable' },
+      body: { model: 'wan2.7-videoedit', input: { prompt: promptOf(shots), media: [{ type: 'video', url: prep.videoUrl }, ...images.slice(0, 4).map(i => ({ type: 'reference_image', url: i.url }))] }, parameters: { resolution: call.resolution, prompt_extend: false, watermark: false, audio_setting: 'origin' } },
+    }),
+    taskId: json => json.output?.task_id,
+    error: (res, json) => `Wan HTTP ${res.status}：${json?.message || json?.code || '无任务号'}${json?.code ? `（${json.code}）` : ''}`,
+    query: task => ({ url: `${config.wan.base}/api/v1/tasks/${encodeURIComponent(task.taskId)}`, headers: { Authorization: `Bearer ${config.wan.key}` } }),
+    parse: (res, json) => {
+      const o = json.output || {}, status = String(o.task_status || '');
+      if (status === 'SUCCEEDED') return { state: 'succeeded', url: o.video_url, usage: json.usage || null };
+      if (['FAILED', 'CANCELED', 'UNKNOWN'].includes(status) || (res.status >= 400 && res.status < 500)) return { state: 'failed', error: `Wan 任务失败：${o.message || o.code || json?.message || status || `HTTP ${res.status}`}${o.code ? `（${o.code}）` : ''}` };
+      return { state: 'running' };
+    },
+  },
   wan3: {
     label: 'Wan 3.0',
     key: () => config.wan.key,
@@ -162,7 +197,8 @@ export async function submitGenerate(job, { ids = null, again = false, expect, f
       const shots = call.shots.map(id => board.shots.find(s => s.id === id));
       const provider = PROVIDERS[call.provider];
       const images = await refImages(job, refsOf(board, shots)); // may throw 400 before any ledger write
-      const req = provider.request({ board, call, shots, images });
+      const prep = provider.prepare ? await provider.prepare({ job, board, call, shots }) : null; // may throw 400 before any ledger write
+      const req = provider.request({ board, call, shots, images, prep });
       const history = shots[0].generate?.task ? [...(shots[0].generate.task.history || []), { ...shots[0].generate.task, history: undefined }] : [];
       await setTask(job, call.shots, { state: 'submitting', taskId: null, error: null, submittedAt: new Date().toISOString(), provider: call.provider, seconds: call.seconds, cost: call.cost, history });
       let res, json;

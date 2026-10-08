@@ -8,6 +8,7 @@ test('negations: unwanted objects are found, safe overlay negations are not', ()
   assert.deepEqual(negations('a calm kitchen, no text, no watermark, no logo'), []);
   assert.deepEqual(negations('桌上一个杯子，不要手机，没有人').map(n => n.object), ['手机', '人']);
   assert.deepEqual(negations('画面干净，不要文字，无水印'), []);
+  assert.deepEqual(negations('穿红色无袖百褶连衣裙和白色运动鞋'), []);          // 无袖 = sleeveless, not a negation
   assert.deepEqual(negations('a cream mug on a wooden table at sunrise'), []);
 });
 
