@@ -1,5 +1,5 @@
 import {parseInstagram} from './account-core.mjs';
-export const VERSION = '0.8.3';
+export const VERSION = '0.8.4';
 export const STORAGE_VERSION = 1;
 export const VIDEO_TYPES = /\.(mp4|mov|m4v|webm|mkv|avi)$/i;
 export const IMAGE_TYPES = /\.(jpe?g|png|webp|gif|heic)$/i;
