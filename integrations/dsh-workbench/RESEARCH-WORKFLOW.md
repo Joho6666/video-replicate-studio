@@ -1,4 +1,4 @@
-# 复刻研究室 0.8.2
+# 复刻研究室 0.8.3
 
 本机 DSH Desktop 适配层，不代表上游 Studio 已发布这些改动。当前只做复刻前研究：读取参考、分析证据、推荐形式、整理素材与提示词，不生成视频。
 
@@ -82,7 +82,7 @@ npm test
 npm run check
 mkdir -p dist
 npm pack ./workbenches/replicate --pack-destination ./dist --ignore-scripts
-dsh plugin --profile web add --ignore-scripts /absolute/path/derek-video-replicate-workbench-0.8.2.tgz
+dsh plugin --profile web add --ignore-scripts /absolute/path/derek-video-replicate-workbench-0.8.3.tgz
 ```
 
 构建仍保留 factory 包，本轮安装对象为 replicate。按 [DSH 开发规范](https://dshdesktop.com/workbench/docs/development.md) 检查包格式、服务端／客户端入口、路由、Host tools 和本地安装清单。升级前备份代码、旧安装包及受影响状态；回退旧包时不要用旧状态覆盖升级后新增业务数据。
@@ -98,3 +98,18 @@ dsh plugin --profile web add --ignore-scripts /absolute/path/derek-video-replica
 真实账户、片段、费用、失败响应和本机安装证据保存在私有验收记录，不写入本通用说明或共享测试。尚未验证的能力保持明确标记，不拿旧案例补验收。
 
 参考：[TikHub API](https://api.tikhub.io/)、[模思模型](https://platform.mosi.cn/docs/getting-started/models/)、[视觉接口](https://platform.mosi.cn/docs/reference/responses/)、[人声转写](https://platform.mosi.cn/docs/reference/transcriptions/)。
+
+
+## 只继续尚未调用的文字阶段
+
+文字整理明确使用宿主 DeepSeek 官方配置，推理等级 `off`，关闭额外思考，输出结构化正文。流式响应在 token 用尽、未收到终止信号或发生错误时保留失败，不把空正文冒充分析。
+
+显式授权的一次比较＋一次提示词整理中，若比较失败且提示词调用数仍为零，可由用户再次明确操作「仅编译已有拆解」继续尚未调用的提示词阶段。限制为原任务同版本最多三条有效画面证据；既不重试比较，也不重跑采集、VL 或 ASR。此动作有独立原子领取、费用计数与持久记录。比较保持失败；编译产物单独附回每条视频，页面不称其为横向优选、热门排行或整体研究完成。已经发出的编译不允许重发。
+
+## 真实本机阅读页
+
+`node scripts/real-research-preview.mjs /chosen/private/data 43219` 打开与 DSH 相同的保存结果界面，自动选择最新抖音账号研究；不含示例数据、不读取密钥，也不配置采集、模型或生成客户端。页面仅允许读取结果、受控媒体播放和主动保留风格，其他收费操作返回拒绝。它是本机结果阅读页，不能替代 DSH 的安装验收或新研究入口。
+
+本机升级时，若安装登记版本与实际模块版本不同，应先确认实际路径并备份旧程序，再修复加载路径。修复仅涉及插件程序；不覆盖新业务状态、密钥或其他插件，不把安装成功提示当成实际运行验证。
+
+本机可显式运行 `review-saved-compilation.mjs DATA_ROOT JOB_ID PLAN_REVISION` 审阅完整返回但时间结构不合格的提示词。原响应及校验失败保留；另建保守参考方案，只保留完整落在已观察时间区间内的分镜，整段跨越未知区间的分镜被放弃并替换为明确的参考片待核对指令，不猜测画面、不新增调用。方案始终 `needs-input`，记录原问题和舍弃区间，不标成逐帧分析或完整优选。
