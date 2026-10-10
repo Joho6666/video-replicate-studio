@@ -36,7 +36,7 @@ test('keychain errors never expose subprocess diagnostics',async()=>{
 test('full backend uses one registration per exact DSH route',async()=>{
  const {applyAccountService}=await import('../src/account-service.mjs');const paths=new Set();const routes=[];
  applyAccountService({connection:{fetch:{register:route=>{assert(!paths.has(route.path),'duplicate path rejected by DSH');paths.add(route.path);routes.push(route);}}}});
- assert.equal(routes.length,10);assert.deepEqual(routes.find(r=>r.path.endsWith('/models')).methods,['GET','POST']);
+ for(const suffix of ['/analysis','/analysis/status','/analysis/result'])assert(paths.has('/api/derek-video-replicate'+suffix));assert.deepEqual(routes.find(r=>r.path.endsWith('/models')).methods,['GET','POST']);
 });
 
 test('history reads never call credentials/provider; refresh alone needs consent',async()=>{

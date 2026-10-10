@@ -1,4 +1,5 @@
 import {sameOrigin} from './request-origin.mjs';
+import {applyAnalysisService} from './analysis-service.mjs';
 import {applyModelSettings} from './model-settings.mjs';
 import {createHistoryStore} from './history-store.mjs';
 import {applyHistoryService} from './history-service.mjs';
@@ -70,7 +71,8 @@ export function applyAccountService(ctx,{root=defaultDataRoot()}={}){
   const store=createHistoryStore({root});
   applyHistoryService(ctx,{store});
   applyPreproductionStore(ctx,{root,history:store});
-  applyModelSettings(ctx);
+  applyModelSettings(ctx,{root});
+  applyAnalysisService(ctx,{root,history:store});
   const handlers=createAccountHandlers({store});
   ctx.connection.fetch.register({path:API+'/status',methods:['GET'],requestBody:'buffered',fetch:()=>handlers.status()});
   ctx.connection.fetch.register({path:API+'/samples',methods:['POST'],requestBody:'buffered',fetch:request=>handlers.samples(request)});

@@ -37,17 +37,45 @@ export function canonicalHistoryUrl(value){
 function cleanSample(sample,account,collectedAt){
  if(!isObject(sample))fail('视频元数据格式无效。');
  const canonical=canonicalHistoryUrl(sample.url??sample.sourceUrl);
- return {id:canonical.id,url:canonical.url,title:text(sample.title,1000),duration:numeric(sample.duration),likes:numeric(sample.likes),views:numeric(sample.views),publishedAt:timestamp(sample.publishedAt),collectedAt,sourceAccount:account.url,ownerVerified:sample.ownerVerified===true,status:'metadata-only'};
+ return {id:canonical.id,url:canonical.url,title:text(sample.title,1000),duration:numeric(sample.duration),likes:numeric(sample.likes),views:numeric(sample.views),publishedAt:timestamp(sample.publishedAt),collectedAt,sourceAccount:account?.url||null,ownerVerified:sample.ownerVerified===true,status:'metadata-only'};
 }
-function emptyState(){return{schemaVersion:SCHEMA,revision:0,records:[],batches:[],reviews:[],caches:{},legacyRuns:[],styleRefs:[],importedReports:[],accountStates:{}};}
+function emptyState(){return{schemaVersion:SCHEMA,revision:0,records:[],topics:[],batches:[],reviews:[],caches:{},legacyRuns:[],styleRefs:[],importedReports:[],accountStates:{}};}
+function defaultTopic(state,record){
+ const username=text(record.account?.username,30).toLowerCase(),id=username?'brand_'+hash(username):'topic_unassigned';
+ let topic=state.topics.find(t=>t.id===id);
+ if(!topic){topic={id,title:username||'未分组参考',kind:username?'brand':'topic',automatic:true,recordIds:[],createdAt:now(),updatedAt:now()};state.topics.push(topic);}
+ if(!topic.recordIds.includes(record.id)){topic.recordIds.push(record.id);topic.updatedAt=now();}
+}
+function upgradeTopics(state){
+ let changed=false;
+ // Only a state without topics needs automatic grouping. Later moves must survive reloads and reimports.
+ if(state.topics===undefined){state.topics=[];for(const record of state.records)defaultTopic(state,record);changed=true;}
+ for(const record of state.records){
+  if(record.account===undefined){record.account=null;changed=true;}
+  if(record.originalTitle===undefined){record.originalTitle=text(record.title,1000);changed=true;}
+ }
+ return changed;
+}
+function topicForView(topic,records){
+ const members=records.filter(r=>topic.recordIds.includes(r.id));
+ return {...topic,recordIds:members.map(r=>r.id),recordCount:members.length,counts:{total:members.length,reviewed:members.filter(r=>r.reviewed).length,favorite:members.filter(r=>r.favorite).length}};
+}
+function topicTitle(value){if(typeof value!=='string'||!value.trim()||value.length>120)fail('专题名称需要 1–120 个字符。');return value.trim();}
 function validateState(v){
  if(!isObject(v)||v.schemaVersion!==SCHEMA||!Number.isSafeInteger(v.revision)||v.revision<0||!Array.isArray(v.records)||!Array.isArray(v.batches)||!Array.isArray(v.reviews)||!isObject(v.caches)||!Array.isArray(v.legacyRuns)||!Array.isArray(v.styleRefs))fail('历史状态文件损坏；已停止写入并保留原文件。',409,'HISTORY_CORRUPT');
  if(v.importedReports===undefined)v.importedReports=[];if(v.accountStates===undefined)v.accountStates={};
  if(!Array.isArray(v.importedReports)||!isObject(v.accountStates))fail('导入历史结构损坏；已停止写入。',409,'HISTORY_CORRUPT');
  const ids=new Set();
  for(const r of v.records){
-  if(!isObject(r)||typeof r.id!=='string'||ids.has(r.id)||typeof r.url!=='string'||!isObject(r.account)||!Array.isArray(r.reportRefs)||!Array.isArray(r.feedback)||!Array.isArray(r.tags)||typeof r.hidden!=='boolean'||typeof r.reviewed!=='boolean'||typeof r.favorite!=='boolean')fail('历史记录结构损坏；已停止写入并保留原文件。',409,'HISTORY_CORRUPT');
+  if(!isObject(r)||typeof r.id!=='string'||ids.has(r.id)||typeof r.url!=='string'||r.account!=null&&!isObject(r.account)||!Array.isArray(r.reportRefs)||!Array.isArray(r.feedback)||!Array.isArray(r.tags)||typeof r.hidden!=='boolean'||typeof r.reviewed!=='boolean'||typeof r.favorite!=='boolean')fail('历史记录结构损坏；已停止写入并保留原文件。',409,'HISTORY_CORRUPT');
   try{if(canonicalHistoryUrl(r.url).id!==r.id)throw Error();}catch{fail('历史来源标识损坏；已停止写入。',409,'HISTORY_CORRUPT');}ids.add(r.id);
+ }
+ if(v.topics!==undefined){
+  if(!Array.isArray(v.topics))fail('专题结构损坏；已停止写入。',409,'HISTORY_CORRUPT');
+  const topicIds=new Set();for(const t of v.topics){
+   if(!isObject(t)||!safeId(t.id)||topicIds.has(t.id)||typeof t.title!=='string'||!t.title.trim()||t.title.length>120||!['brand','topic'].includes(t.kind)||typeof t.automatic!=='boolean'||!Array.isArray(t.recordIds)||new Set(t.recordIds).size!==t.recordIds.length||t.recordIds.some(id=>!ids.has(id)))fail('专题引用损坏；已停止写入。',409,'HISTORY_CORRUPT');
+   topicIds.add(t.id);
+  }
  }
  return v;
 }
@@ -91,7 +119,7 @@ export function createHistoryStore({root}={}){
   return out;
  }
  function addRecords(state,payload,options,reportRows=[]){
-  const account=accountValue(payload.account),collectedAt=timestamp(payload.collectedAt)||now(),provider=text(payload.provider,80)||'local',kind=options.kind||'collection';
+  const account=payload.account==null?null:accountValue(payload.account),collectedAt=timestamp(payload.collectedAt)||now(),provider=text(payload.provider,80)||'local',kind=options.kind||'collection';
   if(!['collection','legacy','metadata-import','report'].includes(kind))fail('历史批次类型不支持。');
   if(!Array.isArray(payload.samples)||payload.samples.length>1000)fail('采集样本列表无效或过大。');
   if(payload.status==='failed'||payload.error||payload.success===false)fail('失败的采集不能覆盖成功缓存。',409);
@@ -99,22 +127,23 @@ export function createHistoryStore({root}={}){
   const reportById=new Map(reportRows.map(x=>[x.id,x]));let addedCount=0;
   for(const sample of normalized){
    let record=state.records.find(r=>r.id===sample.id);const existing=Boolean(record);
-   if(!record){record={id:sample.id,url:sample.url,account,title:sample.title,notes:'',tags:[],reviewed:false,favorite:false,hidden:false,trashedAt:null,createdAt:now(),updatedAt:now(),collectedAt,reportRefs:[],importedReportIds:[],mediaAvailable:false,views:null,likes:null,duration:null,publishedAt:null,feedback:[],status:{metadata:'collected',download:'missing',analysis:'pending'}};state.records.push(record);addedCount++;}
+   if(!record){record={id:sample.id,url:sample.url,account,title:sample.title,originalTitle:sample.title,notes:'',tags:[],reviewed:false,favorite:false,hidden:false,trashedAt:null,createdAt:now(),updatedAt:now(),collectedAt,reportRefs:[],importedReportIds:[],mediaAvailable:false,views:null,likes:null,duration:null,publishedAt:null,feedback:[],status:{metadata:'collected',download:'missing',analysis:'pending'}};state.records.push(record);defaultTopic(state,record);addedCount++;}
    // Metadata refresh does not undo user edits or organization choices.
    if(!existing||!record.title)record.title=sample.title;
+   if(!record.originalTitle&&sample.title)record.originalTitle=sample.title;
    for(const field of ['views','likes','duration','publishedAt'])if(sample[field]!==null)record[field]=sample[field];
    record.collectedAt=collectedAt;record.updatedAt=now();
    const report=reportById.get(sample.id);if(report){if(!record.reportRefs.some(r=>r.runId===report.runId&&r.videoId===report.videoId))record.reportRefs.push({runId:report.runId,videoId:report.videoId});record.mediaAvailable=record.mediaAvailable||report.mediaAvailable;record.status.analysis='available';if(record.duration===null&&report.duration!==null)record.duration=report.duration;}
    record.status.download=record.mediaAvailable?'available':'missing';
   }
-  const recordIds=normalized.map(s=>s.id);const signature=hash(JSON.stringify([kind,account.username,collectedAt,options.runId||null,recordIds]));
+  const recordIds=normalized.map(s=>s.id);const signature=hash(JSON.stringify([kind,account?.username||null,collectedAt,options.runId||null,recordIds]));
   let batch=state.batches.find(b=>b.signature===signature);
   if(!batch){batch={id:'batch_'+randomUUID(),signature,account,provider,collectedAt,createdAt:now(),kind,runId:options.runId||null,recordIds,addedCount,duplicateCount:recordIds.length-addedCount,status:'complete',cached:false};state.batches.push(batch);}
-  if(['collection','legacy'].includes(kind)&&payload.cached!==true){const old=state.caches[account.username];if(!old||collectedAt>=old.collectedAt)state.caches[account.username]={account,samples:normalized.map(({id,...s})=>s),collectedAt,provider,status:'metadata-only',hasMore:payload.hasMore===true,excludedOtherOwners:numeric(payload.excludedOtherOwners)||0,batchId:batch.id};}
+  if(account&&['collection','legacy'].includes(kind)&&payload.cached!==true){const old=state.caches[account.username];if(!old||collectedAt>=old.collectedAt)state.caches[account.username]={account,samples:normalized.map(({id,...s})=>s),collectedAt,provider,status:'metadata-only',hasMore:payload.hasMore===true,excludedOtherOwners:numeric(payload.excludedOtherOwners)||0,batchId:batch.id};}
   return {batchId:batch.id,addedCount,duplicateCount:recordIds.length-addedCount,records:state.records.filter(r=>recordIds.includes(r.id)),cached:payload.cached===true};
  }
  async function migrate(state){
-  let changed=false;const index=await readJson(path.join(rootPath,'index.json'),{optional:true,kind:'旧版索引'});
+  let changed=upgradeTopics(state);const index=await readJson(path.join(rootPath,'index.json'),{optional:true,kind:'旧版索引'});
   for(const [username,runId] of Object.entries(isObject(index?.accounts)?index.accounts:{})){
    if(!safeId(runId)||state.legacyRuns.includes(runId))continue;let account;try{account=accountValue({username});}catch{continue;}
    const reportRows=await reportEntries(runId,account);const saved=await readJson(path.join(rootPath,runId,'samples.json'),{optional:true,kind:'旧版样本'});
@@ -134,10 +163,10 @@ export function createHistoryStore({root}={}){
  function recordForView(record,state){const styleRefs=state.styleRefs.filter(s=>record.reportRefs.some(r=>r.runId===s.runId));return{...record,styleRefs};}
  return {
   async refreshLegacy(){await initialize();return serial(async()=>{const state=await load();if(await migrate(state)){state.revision++;await write(state);}return{revision:state.revision};});},
-  async snapshot({view='active',query='',q}={}){await initialize();if(!['active','hidden','trash','all'].includes(view))fail('历史筛选范围无效。');const state=await load(),needle=text(q??query,200).toLowerCase();const records=state.records.filter(r=>view==='all'||view==='active'&&isActive(r)||view==='hidden'&&r.hidden&&!r.trashedAt||view==='trash'&&r.trashedAt).filter(r=>!needle||[r.title,r.notes,r.account.username,r.url,...r.tags].join('\n').toLowerCase().includes(needle)).sort((a,b)=>b.collectedAt.localeCompare(a.collectedAt));const visibleIds=new Set(records.map(r=>r.id));
-   return copy({schemaVersion:SCHEMA,revision:state.revision,records:records.map(r=>recordForView(r,state)),batches:state.batches.map(b=>({...b,recordIds:b.recordIds.filter(id=>visibleIds.has(id)),hiddenRecordCount:b.recordIds.filter(id=>!visibleIds.has(id)).length})).filter(b=>b.recordIds.length),reviews:state.reviews.map(r=>reviewSummary(r,state)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)),counts:countsOf(state.records)});
+  async snapshot({view='active',query='',q}={}){await initialize();if(!['active','hidden','trash','all'].includes(view))fail('历史筛选范围无效。');const state=await load(),needle=text(q??query,200).toLowerCase();const records=state.records.filter(r=>view==='all'||view==='active'&&isActive(r)||view==='hidden'&&r.hidden&&!r.trashedAt||view==='trash'&&r.trashedAt).filter(r=>!needle||[r.displayTitleZh,r.summaryZh,r.title,r.originalTitle,r.notes,r.account?.username,r.url,...r.tags,...(r.autoTagsZh||[])].join('\n').toLowerCase().includes(needle)).sort((a,b)=>b.collectedAt.localeCompare(a.collectedAt));const visibleIds=new Set(records.map(r=>r.id));
+   return copy({schemaVersion:SCHEMA,revision:state.revision,records:records.map(r=>recordForView(r,state)),topics:state.topics.map(t=>topicForView(t,records)).filter(t=>!t.automatic||t.recordCount),batches:state.batches.map(b=>({...b,recordIds:b.recordIds.filter(id=>visibleIds.has(id)),hiddenRecordCount:b.recordIds.filter(id=>!visibleIds.has(id)).length})).filter(b=>b.recordIds.length),reviews:state.reviews.map(r=>reviewSummary(r,state)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)),counts:countsOf(state.records)});
   },
-  async ingest(payload,options={}){if(!isObject(payload))fail('采集结果格式无效。');const account=accountValue(payload.account);let reports=[];if(options.runId)reports=await reportEntries(options.runId,account);return transact(state=>addRecords(state,payload,options,reports));},
+  async ingest(payload,options={}){if(!isObject(payload))fail('采集结果格式无效。');const account=payload.account==null?null:accountValue(payload.account);let reports=[];if(options.runId){if(!account)fail('关联旧版拆解报告需要来源账号。');reports=await reportEntries(options.runId,account);}return transact(state=>addRecords(state,payload,options,reports));},
   async importLegacy(payload){
    if(!isObject(payload))fail('旧版本地状态格式无效。');const account=accountValue(payload.account);let report=null;
    if(payload.report){try{report=validateAccountReport(payload.report,account);}catch(error){fail(error.message||'导入报告格式无效。');}}
@@ -163,14 +192,48 @@ export function createHistoryStore({root}={}){
    return copy({...cached,samples,cached:true,hiddenCount,trashedCount,report,goal:legacy?.goal||'',assets:legacy?.assets||''});
   },
   async readImportedReport(id){await initialize();const state=await load(),saved=state.importedReports.find(r=>r.id===id);if(!saved)fail('导入报告不存在。',404);if(saved.recordIds.some(id=>!state.records.some(r=>r.id===id&&isActive(r))))fail('此报告引用了已隐藏或回收站记录。',409,'HISTORY_REPORT_HIDDEN');return copy(saved);},
-  async mutate(input){if(!isObject(input))fail('历史操作格式无效。');const {action}=input;if(!['reviewed','favorite','hide','unhide','trash','restore','edit','feedback'].includes(action))fail('不支持的历史操作。');if(!Array.isArray(input.ids))fail('请选择有效的历史记录。');const ids=[...new Set(input.ids)];if(!ids.length||ids.length>500||ids.some(id=>typeof id!=='string'))fail('请选择有效的历史记录。');
+  // Internal service API only. Client mutate requests cannot attach trusted analysis provenance.
+  async attachAnalysisMetadata(recordId,validated){
+   if(!safeId(recordId)||!isObject(validated)||!isObject(validated.analysisRef))fail('分析元数据格式无效。');
+   const ref=validated.analysisRef;
+   if(!safeId(ref.analysisId)||ref.recordId!==undefined&&ref.recordId!==recordId||typeof ref.provider!=='string'||!/^[A-Za-z0-9_-]{1,80}$/.test(ref.provider)||!timestamp(ref.completedAt)||ref.model!==undefined&&(typeof ref.model!=='string'||!/^[A-Za-z0-9._:/-]{1,160}$/.test(ref.model)))fail('分析来源引用格式无效。');
+   for(const [field,max] of [['displayTitleZh',1000],['summaryZh',5000]])if(validated[field]!==undefined&&(typeof validated[field]!=='string'||validated[field].length>max))fail('分析中文信息过长或格式无效。');
+   if(validated.autoTagsZh!==undefined&&(!Array.isArray(validated.autoTagsZh)||validated.autoTagsZh.length>30||validated.autoTagsZh.some(t=>typeof t!=='string'||t.length>60)))fail('分析标签格式无效。');
+   return transact(state=>{
+    const record=state.records.find(r=>r.id===recordId);if(!record)fail('历史记录不存在。',404);
+    if(validated.displayTitleZh!==undefined&&record.displayTitleSource!=='user'){record.displayTitleZh=validated.displayTitleZh.trim();record.displayTitleSource='analysis';}
+    if(validated.summaryZh!==undefined)record.summaryZh=validated.summaryZh.trim();
+    if(validated.autoTagsZh!==undefined)record.autoTagsZh=[...new Set(validated.autoTagsZh.map(t=>t.trim()).filter(Boolean))];
+    record.analysisRef={recordId,analysisId:ref.analysisId,provider:ref.provider,completedAt:timestamp(ref.completedAt),...(ref.model?{model:ref.model}:{})};
+    record.status.analysis='available';record.updatedAt=now();return{record:recordForView(record,state)};
+   });
+  },
+  async mutate(input){if(!isObject(input))fail('历史操作格式无效。');const {action}=input;
+   if(['create-topic','rename-topic','link-topic','move-topic'].includes(action))return transact(state=>{
+    const requestedIds=input.ids===undefined&&['create-topic','rename-topic'].includes(action)?[]:input.ids;
+    if(!Array.isArray(requestedIds)||requestedIds.length>500||requestedIds.some(id=>typeof id!=='string')||['link-topic','move-topic'].includes(action)&&!requestedIds.length)fail('请选择有效的历史记录。');
+    const ids=[...new Set(requestedIds)],records=ids.map(id=>{const record=state.records.find(r=>r.id===id);if(!record)fail('历史记录不存在。',404);return record;});
+    let topic;
+    if(action==='create-topic'){
+     const kind=input.kind??'topic';if(!['brand','topic'].includes(kind))fail('专题类型无效。');
+     topic={id:'topic_'+randomUUID(),title:topicTitle(input.title),kind,automatic:false,recordIds:ids,createdAt:now(),updatedAt:now()};state.topics.push(topic);
+    }else{
+     topic=state.topics.find(t=>t.id===input.topicId);if(!topic)fail('专题不存在。',404);
+     if(action==='rename-topic')topic.title=topicTitle(input.title);
+     if(action==='move-topic')for(const other of state.topics){if(other.id!==topic.id&&other.recordIds.some(id=>ids.includes(id))){other.recordIds=other.recordIds.filter(id=>!ids.includes(id));other.updatedAt=now();}}
+     if(['link-topic','move-topic'].includes(action))topic.recordIds=[...new Set([...topic.recordIds,...ids])];
+     topic.updatedAt=now();
+    }
+    return{topic:topicForView(topic,state.records.filter(isActive)),records:records.map(r=>recordForView(r,state))};
+   });
+   if(!['reviewed','favorite','hide','unhide','trash','restore','edit','feedback'].includes(action))fail('不支持的历史操作。');if(!Array.isArray(input.ids))fail('请选择有效的历史记录。');const ids=[...new Set(input.ids)];if(!ids.length||ids.length>500||ids.some(id=>typeof id!=='string'))fail('请选择有效的历史记录。');
    return transact(state=>{const records=ids.map(id=>{const r=state.records.find(r=>r.id===id);if(!r)fail('历史记录不存在。',404);return r;});
     if(action==='edit'&&ids.length!==1)fail('名称和备注一次只能编辑一条。');if(action==='feedback'&&ids.length!==1)fail('复刻反馈一次只能登记一条。');
     for(const record of records){
      if(action==='reviewed'||action==='favorite')record[action]=typeof input.value==='boolean'?input.value:!record[action];
      if(action==='hide')record.hidden=typeof input.value==='boolean'?input.value:true;if(action==='unhide')record.hidden=false;
      if(action==='trash')record.trashedAt=record.trashedAt||now();if(action==='restore')record.trashedAt=null;
-     if(action==='edit'){if(input.title!==undefined){if(typeof input.title!=='string'||input.title.length>1000)fail('名称过长或格式无效。');record.title=input.title.trim();}if(input.notes!==undefined){if(typeof input.notes!=='string'||input.notes.length>5000)fail('备注最多 5000 字符。');record.notes=input.notes.trim();}if(input.tags!==undefined){if(!Array.isArray(input.tags)||input.tags.length>30||input.tags.some(t=>typeof t!=='string'||t.length>60))fail('标签格式无效，每条最多 30 个标签。');record.tags=[...new Set(input.tags.map(t=>t.trim()).filter(Boolean))];}}
+     if(action==='edit'){if(input.title!==undefined){if(typeof input.title!=='string'||input.title.length>1000)fail('名称过长或格式无效。');record.title=input.title.trim();if(input.displayTitleZh===undefined)record.displayTitleZh=record.title;record.displayTitleSource='user';}if(input.displayTitleZh!==undefined){if(typeof input.displayTitleZh!=='string'||input.displayTitleZh.length>1000)fail('中文名称过长或格式无效。');record.displayTitleZh=input.displayTitleZh.trim();record.displayTitleSource='user';}if(input.notes!==undefined){if(typeof input.notes!=='string'||input.notes.length>5000)fail('备注最多 5000 字符。');record.notes=input.notes.trim();}if(input.tags!==undefined){if(!Array.isArray(input.tags)||input.tags.length>30||input.tags.some(t=>typeof t!=='string'||t.length>60))fail('标签格式无效，每条最多 30 个标签。');record.tags=[...new Set(input.tags.map(t=>t.trim()).filter(Boolean))];}}
      if(action==='feedback'){
       if(record.trashedAt)fail('请恢复记录后再登记反馈。',409);
       if(!['success','needs-improvement','not-tried'].includes(input.outcome))fail('反馈结果无效。');const note=text(input.note,5000);if(input.outcome==='success'&&!note)fail('请填写成功表现；人工反馈仍需证据核验。');let evidence=null;
