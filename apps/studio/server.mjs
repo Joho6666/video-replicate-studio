@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import {fetchAccountSamples} from './lib/account-benchmark.mjs';
+import {parseInstagram} from './public/account-core.js';
 import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { mkdir, rm, stat, unlink } from 'node:fs/promises';
 import http from 'node:http';
@@ -90,6 +92,7 @@ async function route(req, res) {
   if (mutating && req.headers['x-studio'] !== '1') return send(res, 403, { error: 'forbidden' });
 
   if (parts[0] === 'api') {
+    if (parts[1] === 'benchmark' && parts[2] === 'samples' && parts.length === 3 && req.method === 'POST') return send(res, 200, await fetchAccountSamples(await readJson(req, 10000), config.tikhub));
     if (parts[1] === 'health') return send(res, 200, await health());
     if (parts[1] === 'moss' && parts[2] === 'voices' && req.method === 'GET') return send(res, 200, await listVoices());
 
@@ -100,6 +103,7 @@ async function route(req, res) {
         if (body.script !== undefined) return send(res, 201, summary(await createScriptJob({ text: body.script, title: body.title, brief: cleanBrief(body.brief) })));
         const link = extractUrl(body.text);
         if (!link) return send(res, 400, { error: '没有识别到链接，请粘贴分享文案或视频地址' });
+        if (parseInstagram(link)?.kind === 'account') return send(res, 400, { error: '这是 Instagram 账号主页，请从导航的「账号对标」入口添加。' });
         const platform = detectPlatform(link);
         if (!platform) return send(res, 400, { error: '暂只支持 抖音 / B站 / TikTok / Instagram 链接' });
         const job = await createJob({ source: { platform, url: link, input: String(body.text).slice(0, 1000) }, brief: cleanBrief(body.brief) });
