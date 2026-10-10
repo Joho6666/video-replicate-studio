@@ -1,0 +1,21 @@
+# Generated build output and local dependencies
+node_modules/
+workbenches/
+preview/
+dist/
+*.tgz
+*.log
+.DS_Store
+
+# Private local inputs, records, backups, credentials, and review drafts
+.env
+.env.*
+data/
+backups/
+review-drafts/
+recordings/
+*.mp4
+*.mov
+*.webm
+*.mp3
+*.wav

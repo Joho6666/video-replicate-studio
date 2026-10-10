@@ -1,0 +1,15 @@
+{
+  "name": "derek-video-workbenches-local",
+  "version": "0.8.4",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/check-workbench-package.mjs",
+    "test": "node --test test/*.test.mjs",
+    "preview": "node scripts/preview.mjs"
+  },
+  "devDependencies": {
+    "linkedom": "0.18.12"
+  }
+}

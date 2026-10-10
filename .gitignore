@@ -16,3 +16,6 @@ apps/studio/public/tutorial/
 
 # portfolio site: sample videos include client / third-party content, never committed
 apps/site/media/
+
+# Local benchmark archive, videos, reports, credentials and review drafts.
+apps/studio/data/benchmark/

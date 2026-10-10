@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import {createBenchmarkRouter} from './lib/benchmark-router.mjs';
+import {parseInstagram} from './public/account-core.js';
 import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { mkdir, rm, stat, unlink } from 'node:fs/promises';
 import http from 'node:http';
@@ -19,6 +21,7 @@ import { isRunning, runPipeline } from './lib/pipeline.mjs';
 import { detectPlatform, extractUrl, PLATFORMS } from './lib/sources.mjs';
 
 const PUBLIC = path.join(STUDIO_DIR, 'public');
+const benchmark = createBenchmarkRouter({root:path.join(STUDIO_DIR,'data','benchmark'),tikhub:config.tikhub});
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.mp4': 'video/mp4', '.md': 'text/markdown; charset=utf-8' };
 
 const send = (res, status, body, headers = {}) => {
@@ -90,6 +93,7 @@ async function route(req, res) {
   if (mutating && req.headers['x-studio'] !== '1') return send(res, 403, { error: 'forbidden' });
 
   if (parts[0] === 'api') {
+    if (parts[1] === 'benchmark' && await benchmark.route(req,res)) return;
     if (parts[1] === 'health') return send(res, 200, await health());
     if (parts[1] === 'moss' && parts[2] === 'voices' && req.method === 'GET') return send(res, 200, await listVoices());
 
@@ -100,6 +104,7 @@ async function route(req, res) {
         if (body.script !== undefined) return send(res, 201, summary(await createScriptJob({ text: body.script, title: body.title, brief: cleanBrief(body.brief) })));
         const link = extractUrl(body.text);
         if (!link) return send(res, 400, { error: '没有识别到链接，请粘贴分享文案或视频地址' });
+        if (parseInstagram(link)?.kind === 'account') return send(res, 400, { error: '这是 Instagram 账号主页，请从导航的「账号对标」入口添加。' });
         const platform = detectPlatform(link);
         if (!platform) return send(res, 400, { error: '暂只支持 抖音 / B站 / TikTok / Instagram 链接' });
         const job = await createJob({ source: { platform, url: link, input: String(body.text).slice(0, 1000) }, brief: cleanBrief(body.brief) });
