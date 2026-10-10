@@ -1,6 +1,6 @@
 {
-  "name": "video-replicate-dsh-workbench-source",
-  "version": "0.4.3",
+  "name": "derek-video-workbenches-local",
+  "version": "0.6.3",
   "private": true,
   "type": "module",
   "scripts": {

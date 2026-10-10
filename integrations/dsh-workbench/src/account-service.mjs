@@ -1,3 +1,9 @@
+import path from 'node:path';
+import {createResearchService,applyResearchService} from './research-service.mjs';
+import {createMediaResolver} from './research-media.mjs';
+import {resolveDouyinShare} from './douyin-share.mjs';
+import {createResearchAnalyzer} from './research-analyzer.mjs';
+import {applyResearchAgent} from './research-agent.mjs';
 import {sameOrigin} from './request-origin.mjs';
 import {applyAnalysisService} from './analysis-service.mjs';
 import {applyModelSettings} from './model-settings.mjs';
@@ -7,6 +13,10 @@ import {parseInstagram} from './account-core.mjs';
 import {defaultDataRoot,applyPreproductionStore} from './preproduction-store.mjs';
 import {spawn} from 'node:child_process';
 import {fetchAccountSamples} from './account-fetch.mjs';
+import {parseDouyin,isDouyinShortLink,fetchDouyinAccountSamples} from './douyin-source.mjs';
+export function parseSupportedAccount(url){return parseInstagram(url)||parseDouyin(url);}
+export function fetchSupportedAccountSamples(input,options){return parseDouyin(input.url)?.kind==='account'?fetchDouyinAccountSamples(input,options):fetchAccountSamples(input,options);}
+const cacheIdentity=account=>account.platform==='Douyin'?account:account.username;
 const SERVICE='derek.dsh-workbenches.tikhub';
 const ACCOUNT='dsh-workbench';
 const API='/api/derek-video-replicate/account';
@@ -48,14 +58,15 @@ export function createAccountHandlers({getKey=readTikHubKey,fetchImpl=privateTik
       if(inflight)return reply({error:'已有采集请求正在运行，请稍后再试。'},409);
       let body;try{const text=await request.text();if(text.length>4096)return reply({error:'请求内容过大。'},413);body=JSON.parse(text);}catch{return reply({error:'请求格式错误。'},400);}
       if(!body||typeof body!=='object')return reply({error:'请求格式错误。'},400);
-      const account=parseInstagram(body.url);if(account?.kind!=='account')return reply({error:'请输入有效 Instagram 账号主页。'},400);
-      if(store&&body.refresh!==true){try{const cached=await store.findAccountCache(account.username);return cached?reply(cached):reply({error:'没有已保存样本，请主动刷新采集。'},428);}catch{return reply({error:'本机历史暂不可用，未发起采集。'},503);}}
+      if(isDouyinShortLink(body.url))return reply({error:'请先在浏览器展开抖音分享短链，提供完整的 www.douyin.com/user/… 主页链接；未调用解析接口。'},400);
+      const account=parseSupportedAccount(body.url);if(account?.kind!=='account')return reply({error:'请输入 Instagram 主页或完整抖音 user/… 主页链接。'},400);
+      if(store&&body.refresh!==true){try{const cached=await store.findAccountCache(cacheIdentity(account));return cached?reply(cached):reply({error:'没有已保存样本，请主动刷新采集。'},428);}catch{return reply({error:'本机历史暂不可用，未发起采集。'},503);}}
       if(body.consent!==true)return reply({error:'请先确认单次采集调用。'},400);
       inflight=true;
-      try{const result=await fetchAccountSamples(body,{key:await getKey(),fetchImpl});
+      try{const result=await fetchSupportedAccountSamples(body,{key:await getKey(),fetchImpl});
         if(!store)return reply({...result,cached:false,persisted:false});
         try{await store.ingest(result);}catch{return reply({error:'已获取元数据，但本机归档失败。请检查本机存储；再次刷新会重新调用接口。'},507);}
-        let visible;try{visible=await store.findAccountCache(account.username);}catch{}
+        let visible;try{visible=await store.findAccountCache(cacheIdentity(account));}catch{}
         if(!Array.isArray(visible?.samples))return reply({error:'新样本已归档，但可见记录暂时无法读取。请先读取已保存样本，避免重复刷新收费。'},503);
         return reply({...visible,cached:false,persisted:true});
       }
@@ -73,6 +84,13 @@ export function applyAccountService(ctx,{root=defaultDataRoot()}={}){
   applyPreproductionStore(ctx,{root,history:store});
   applyModelSettings(ctx,{root});
   applyAnalysisService(ctx,{root,history:store});
+  const research=createResearchService({root,history:store,resolveSource:resolveDouyinShare,
+    collectAccount:async input=>fetchSupportedAccountSamples(input,{key:await readTikHubKey(),fetchImpl:privateTikHubFetch}),
+    analyzeVideo:createResearchAnalyzer({root,resolveMedia:createMediaResolver({getKey:readTikHubKey,fetchImpl:privateTikHubFetch}),isActive:async id=>(await store.snapshot({view:'active'})).records.some(r=>r.id===id)})
+  });
+  applyResearchService(ctx,{service:research});
+  applyResearchAgent(ctx,{service:research});
+  ctx.connection.fetch.register({path:'/api/derek-video-replicate/research/workspace',methods:['GET'],requestBody:'buffered',fetch:request=>sameOrigin(request)?Response.json({folder:path.dirname(root)},{headers:{'cache-control':'no-store'}}):Response.json({error:'请求来源校验失败。'},{status:403})});
   const handlers=createAccountHandlers({store});
   ctx.connection.fetch.register({path:API+'/status',methods:['GET'],requestBody:'buffered',fetch:()=>handlers.status()});
   ctx.connection.fetch.register({path:API+'/samples',methods:['POST'],requestBody:'buffered',fetch:request=>handlers.samples(request)});

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createAccountHandlers, privateTikHubFetch, readTikHubKey} from '../src/account-service.mjs';
 const key='test-secret-not-real-12345';
-const input={url:'https://www.instagram.com/examplebrand/',consent:true};
+const input={url:'https://www.instagram.com/casekooofficial/',consent:true};
 const req=(body=input,headers={})=>new Request('http://localhost:43129/api/derek-video-replicate/account/samples',{method:'POST',headers:{'x-derek-workbench':'1',...headers},body:JSON.stringify(body)});
 test('status reports configuration without returning credentials or claiming analysis',async()=>{
  const handlers=createAccountHandlers({getKey:async()=>key});
@@ -35,7 +35,7 @@ test('keychain errors never expose subprocess diagnostics',async()=>{
 
 test('full backend uses one registration per exact DSH route',async()=>{
  const {applyAccountService}=await import('../src/account-service.mjs');const paths=new Set();const routes=[];
- applyAccountService({connection:{fetch:{register:route=>{assert(!paths.has(route.path),'duplicate path rejected by DSH');paths.add(route.path);routes.push(route);}}}});
+ applyAccountService({on:()=>()=>{},tools:{register:()=>{}},desktopWorkbenchOwnership:{read:()=>({sessionBindings:{}})},effect:f=>f(),connection:{fetch:{register:route=>{assert(!paths.has(route.path),'duplicate path rejected by DSH');paths.add(route.path);routes.push(route);}}}});
  for(const suffix of ['/analysis','/analysis/status','/analysis/result'])assert(paths.has('/api/derek-video-replicate'+suffix));assert.deepEqual(routes.find(r=>r.path.endsWith('/models')).methods,['GET','POST']);
 });
 
@@ -69,3 +69,6 @@ test('post-refresh history failure never returns unfiltered provider samples',as
   const response=await h.samples(req({...input,refresh:true}));assert.equal(response.status,503);const body=await response.json();assert(!body.samples);assert(!JSON.stringify(body).includes('unfiltered sample'));
  }
 });
+
+test('Douyin account reads use platform identity and refresh makes one AppV3 list request',async t=>{const {mkdtemp,rm}=await import('node:fs/promises'),os=await import('node:os'),path=await import('node:path'),{createHistoryStore}=await import('../src/history-store.mjs');const root=await mkdtemp(path.join(os.tmpdir(),'dsh-douyin-account-'));t.after(()=>rm(root,{recursive:true,force:true}));const store=createHistoryStore({root}),secUid='MS4wLjAB_SYNTHETIC_Douyin_Account_123456789',url='https://www.douyin.com/user/'+secUid;let credentialReads=0,calls=0;const h=createAccountHandlers({store,getKey:async()=>{credentialReads++;return key;},fetchImpl:async endpoint=>{calls++;assert.equal(new URL(endpoint).pathname,'/api/v1/douyin/app/v3/fetch_user_post_videos');return Response.json({data:{aweme_list:[{aweme_id:'7372484719365098803',aweme_type:0,desc:'合成抖音标题',author:{sec_uid:secUid,nickname:'合成品牌'},video:{duration:10500},create_time:1791504000,statistics:{digg_count:10}}],has_more:1}});}});assert.equal((await h.samples(req({url}))).status,428);assert.equal(credentialReads,0);assert.equal((await h.samples(req({url,refresh:true}))).status,400);assert.equal(calls,0);const fresh=await h.samples(req({url,refresh:true,consent:true}));assert.equal(fresh.status,200);const body=await fresh.json();assert.equal(body.account.platform,'Douyin');assert.equal(body.account.secUid,secUid);assert.equal(body.samples.length,1);assert.equal(calls,1);const read=await h.samples(req({url}));assert.equal(read.status,200);assert.equal(calls,1);assert.equal(credentialReads,1);const id=(await store.snapshot()).records[0].id;await store.mutate({action:'hide',ids:[id]});assert.equal((await (await h.samples(req({url}))).json()).samples.length,0);assert.equal(calls,1);});
+test('Douyin short share links are rejected without reading credentials or resolving externally',async()=>{let calls=0;const h=createAccountHandlers({getKey:async()=>{calls++;return key;},fetchImpl:async()=>{calls++;}});const response=await h.samples(req({url:'https://v.douyin.com/SYNTHETIC/',refresh:true,consent:true}));assert.equal(response.status,400);assert.match((await response.json()).error,/完整/);assert.equal(calls,0);});

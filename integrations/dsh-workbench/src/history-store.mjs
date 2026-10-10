@@ -15,10 +15,23 @@ const timestamp=v=>typeof v==='string'&&!Number.isNaN(Date.parse(v))?new Date(v)
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function fail(message,status=400,code='HISTORY_INVALID'){throw Object.assign(new Error(message),{status,code});}
 function accountValue(value){
+ if(value?.platform==='Douyin'){
+  const secUid=typeof value.secUid==='string'?value.secUid.trim():typeof value.username==='string'?value.username.trim():'';
+  // secUid is case-sensitive and longer than an Instagram username. Validate
+  // before normalizing; truncation would merge unrelated source accounts.
+  if(!/^[A-Za-z0-9_-]{10,200}$/.test(secUid))fail('抖音账号 secUid 无效，请提供完整主页链接。');
+  if(value.url){let u;try{u=new URL(value.url);}catch{fail('抖音账号主页链接无效。');}if(u.protocol!=='https:'||u.username||u.password||u.port||!['www.douyin.com','douyin.com'].includes(u.hostname)||u.pathname.replace(/\/$/,'')!==`/user/${secUid}`)fail('抖音账号主页与 secUid 不一致，请提供完整主页链接。');}
+  const displayName=text(value.displayName,120);
+  return {platform:'Douyin',secUid,username:secUid,...(displayName?{displayName}:{}),url:`https://www.douyin.com/user/${secUid}`};
+ }
+ if(value?.platform!==undefined&&value.platform!=='Instagram')fail('账号平台暂不支持。');
  const username=text(value?.username,30).toLowerCase();
  if(!/^[A-Za-z0-9_][A-Za-z0-9_.]{0,29}$/.test(username))fail('账号标识格式无效。');
  return {username,url:`https://www.instagram.com/${username}/`};
 }
+// Keep every existing Instagram cache key unchanged. Only the added platform
+// uses a prefix; do not migrate old state or re-key old batches and topics.
+const accountCacheKey=account=>account?.platform==='Douyin'?`douyin:${account.secUid}`:account?.username||'';
 export function canonicalHistoryUrl(value){
  let u;try{u=new URL(value);}catch{fail('视频来源链接无效。');}
  if(u.protocol!=='https:'||u.username||u.password||u.port||!u.hostname.includes('.')||/^(localhost|127\.|0\.|\[|10\.|192\.168\.)/.test(u.hostname))fail('视频来源必须是公开 HTTPS 页面链接。');
@@ -41,9 +54,9 @@ function cleanSample(sample,account,collectedAt){
 }
 function emptyState(){return{schemaVersion:SCHEMA,revision:0,records:[],topics:[],batches:[],reviews:[],caches:{},legacyRuns:[],styleRefs:[],importedReports:[],accountStates:{}};}
 function defaultTopic(state,record){
- const username=text(record.account?.username,30).toLowerCase(),id=username?'brand_'+hash(username):'topic_unassigned';
+ const douyin=record.account?.platform==='Douyin',username=douyin?accountCacheKey(record.account):text(record.account?.username,30).toLowerCase(),id=username?'brand_'+hash(username):'topic_unassigned';
  let topic=state.topics.find(t=>t.id===id);
- if(!topic){topic={id,title:username||'未分组参考',kind:username?'brand':'topic',automatic:true,recordIds:[],createdAt:now(),updatedAt:now()};state.topics.push(topic);}
+ if(!topic){const title=douyin?(text(record.account.displayName,120)||`抖音账号 ${record.account.secUid.slice(0,12)}${record.account.secUid.length>12?'…':''}`):username||'未分组参考';topic={id,title,kind:username?'brand':'topic',automatic:true,recordIds:[],createdAt:now(),updatedAt:now()};state.topics.push(topic);}
  if(!topic.recordIds.includes(record.id)){topic.recordIds.push(record.id);topic.updatedAt=now();}
 }
 function upgradeTopics(state){
@@ -113,6 +126,7 @@ export function createHistoryStore({root}={}){
   try{const base=await realpath(path.join(rootPath,runId)),actual=await realpath(path.join(rootPath,runId,file));const rootReal=await realpath(rootPath);return base.startsWith(rootReal+path.sep)&&actual.startsWith(base+path.sep)&&(await stat(actual)).isFile();}catch{return false;}
  }
  async function reportEntries(runId,expectedAccount){
+  if(expectedAccount.platform==='Douyin')fail('旧版本地拆解报告关联仅支持 Instagram；抖音研究结果请由当前研究流程保存。');
   if(!safeId(runId))fail('拆解报告标识无效。');const report=await readJson(path.join(rootPath,runId,'report.json'),{optional:true,kind:'旧版报告'});if(!report)return[];
   if(report.account?.username?.toLowerCase()!==expectedAccount.username)fail('拆解报告账号与历史批次不一致。',409);
   const out=[];for(const video of Array.isArray(report.videos)?report.videos:[]){try{const c=canonicalHistoryUrl(video.sourceUrl);if(!safeId(video.id))continue;out.push({id:c.id,url:c.url,videoId:video.id,runId,title:text(video.title),duration:numeric(video.duration),mediaAvailable:await mediaExists(runId,video.file)});}catch(error){if(error.code==='HISTORY_INVALID')continue;throw error;}}
@@ -136,10 +150,10 @@ export function createHistoryStore({root}={}){
    const report=reportById.get(sample.id);if(report){if(!record.reportRefs.some(r=>r.runId===report.runId&&r.videoId===report.videoId))record.reportRefs.push({runId:report.runId,videoId:report.videoId});record.mediaAvailable=record.mediaAvailable||report.mediaAvailable;record.status.analysis='available';if(record.duration===null&&report.duration!==null)record.duration=report.duration;}
    record.status.download=record.mediaAvailable?'available':'missing';
   }
-  const recordIds=normalized.map(s=>s.id);const signature=hash(JSON.stringify([kind,account?.username||null,collectedAt,options.runId||null,recordIds]));
+  const recordIds=normalized.map(s=>s.id);const accountKey=accountCacheKey(account),signature=hash(JSON.stringify([kind,accountKey||null,collectedAt,options.runId||null,recordIds]));
   let batch=state.batches.find(b=>b.signature===signature);
   if(!batch){batch={id:'batch_'+randomUUID(),signature,account,provider,collectedAt,createdAt:now(),kind,runId:options.runId||null,recordIds,addedCount,duplicateCount:recordIds.length-addedCount,status:'complete',cached:false};state.batches.push(batch);}
-  if(account&&['collection','legacy'].includes(kind)&&payload.cached!==true){const old=state.caches[account.username];if(!old||collectedAt>=old.collectedAt)state.caches[account.username]={account,samples:normalized.map(({id,...s})=>s),collectedAt,provider,status:'metadata-only',hasMore:payload.hasMore===true,excludedOtherOwners:numeric(payload.excludedOtherOwners)||0,batchId:batch.id};}
+  if(account&&['collection','legacy'].includes(kind)&&payload.cached!==true){const old=state.caches[accountKey];if(!old||collectedAt>=old.collectedAt)state.caches[accountKey]={account,samples:normalized.map(({id,...s})=>s),collectedAt,provider,status:'metadata-only',hasMore:payload.hasMore===true,excludedOtherOwners:numeric(payload.excludedOtherOwners)||0,batchId:batch.id};}
   return {batchId:batch.id,addedCount,duplicateCount:recordIds.length-addedCount,records:state.records.filter(r=>recordIds.includes(r.id)),cached:payload.cached===true};
  }
  async function migrate(state){
@@ -163,29 +177,30 @@ export function createHistoryStore({root}={}){
  function recordForView(record,state){const styleRefs=state.styleRefs.filter(s=>record.reportRefs.some(r=>r.runId===s.runId));return{...record,styleRefs};}
  return {
   async refreshLegacy(){await initialize();return serial(async()=>{const state=await load();if(await migrate(state)){state.revision++;await write(state);}return{revision:state.revision};});},
-  async snapshot({view='active',query='',q}={}){await initialize();if(!['active','hidden','trash','all'].includes(view))fail('历史筛选范围无效。');const state=await load(),needle=text(q??query,200).toLowerCase();const records=state.records.filter(r=>view==='all'||view==='active'&&isActive(r)||view==='hidden'&&r.hidden&&!r.trashedAt||view==='trash'&&r.trashedAt).filter(r=>!needle||[r.displayTitleZh,r.summaryZh,r.title,r.originalTitle,r.notes,r.account?.username,r.url,...r.tags,...(r.autoTagsZh||[])].join('\n').toLowerCase().includes(needle)).sort((a,b)=>b.collectedAt.localeCompare(a.collectedAt));const visibleIds=new Set(records.map(r=>r.id));
+  async snapshot({view='active',query='',q}={}){await initialize();if(!['active','hidden','trash','all'].includes(view))fail('历史筛选范围无效。');const state=await load(),needle=text(q??query,200).toLowerCase();const records=state.records.filter(r=>view==='all'||view==='active'&&isActive(r)||view==='hidden'&&r.hidden&&!r.trashedAt||view==='trash'&&r.trashedAt).filter(r=>!needle||[r.displayTitleZh,r.summaryZh,r.title,r.originalTitle,r.notes,r.account?.username,r.account?.displayName,r.account?.platform,r.url,...r.tags,...(r.autoTagsZh||[])].join('\n').toLowerCase().includes(needle)).sort((a,b)=>b.collectedAt.localeCompare(a.collectedAt));const visibleIds=new Set(records.map(r=>r.id));
    return copy({schemaVersion:SCHEMA,revision:state.revision,records:records.map(r=>recordForView(r,state)),topics:state.topics.map(t=>topicForView(t,records)).filter(t=>!t.automatic||t.recordCount),batches:state.batches.map(b=>({...b,recordIds:b.recordIds.filter(id=>visibleIds.has(id)),hiddenRecordCount:b.recordIds.filter(id=>!visibleIds.has(id)).length})).filter(b=>b.recordIds.length),reviews:state.reviews.map(r=>reviewSummary(r,state)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)),counts:countsOf(state.records)});
   },
   async ingest(payload,options={}){if(!isObject(payload))fail('采集结果格式无效。');const account=payload.account==null?null:accountValue(payload.account);let reports=[];if(options.runId){if(!account)fail('关联旧版拆解报告需要来源账号。');reports=await reportEntries(options.runId,account);}return transact(state=>addRecords(state,payload,options,reports));},
   async importLegacy(payload){
-   if(!isObject(payload))fail('旧版本地状态格式无效。');const account=accountValue(payload.account);let report=null;
+   if(!isObject(payload))fail('旧版本地状态格式无效。');const account=accountValue(payload.account),accountKey=accountCacheKey(account);let report=null;
+   if(payload.report&&account.platform==='Douyin')fail('旧版外部账号报告仅支持 Instagram；抖音元数据可以单独导入。');
    if(payload.report){try{report=validateAccountReport(payload.report,account);}catch(error){fail(error.message||'导入报告格式无效。');}}
    const existingSamples=Array.isArray(payload.samples)?payload.samples:[];if(existingSamples.length>1000)fail('导入样本过多。');
    const evidence=report?report.types.flatMap(t=>t.evidence.map(e=>({url:e.url,title:'外部分析报告引用'}))):[];
    const collectedAt=timestamp(payload.collectedAt)||timestamp(existingSamples[0]?.collectedAt)||timestamp(report?.analyzedAt)||now();
    return transact(state=>{
     const result=addRecords(state,{account,samples:[...existingSamples,...evidence],collectedAt,provider:'local-browser-import'},{kind:'metadata-import'});
-    const prior=state.accountStates[account.username]||{};let importedReportId=prior.importedReportId||null;
+    const prior=state.accountStates[accountKey]||{};let importedReportId=prior.importedReportId||null;
     if(report){const id='imported_'+hash(JSON.stringify(report));let saved=state.importedReports.find(r=>r.id===id);
      if(!saved){const recordIds=[...new Set(evidence.map(e=>canonicalHistoryUrl(e.url).id))];saved={id,account,createdAt:now(),status:'imported-unverified',report,recordIds};state.importedReports.push(saved);}
      importedReportId=id;for(const record of state.records.filter(r=>saved.recordIds.includes(r.id))){record.importedReportIds??=[];if(!record.importedReportIds.includes(id))record.importedReportIds.push(id);if(record.status.analysis!=='available')record.status.analysis='imported-unverified';}
     }
-    state.accountStates[account.username]={account,goal:payload.goal===undefined?prior.goal||'':text(payload.goal,5000),assets:payload.assets===undefined?prior.assets||'':text(payload.assets,5000),importedReportId,recordIds:[...new Set([...(prior.recordIds||[]),...result.records.map(r=>r.id)])],collectedAt,updatedAt:now()};
+    state.accountStates[accountKey]={account,goal:payload.goal===undefined?prior.goal||'':text(payload.goal,5000),assets:payload.assets===undefined?prior.assets||'':text(payload.assets,5000),importedReportId,recordIds:[...new Set([...(prior.recordIds||[]),...result.records.map(r=>r.id)])],collectedAt,updatedAt:now()};
     return{...result,importedReportId,reportStatus:report?'imported-unverified':null};
    });
   },
-  async findAccountCache(username){
-   await initialize();const account=accountValue({username}),state=await load(),legacy=state.accountStates[account.username];let cached=state.caches[account.username];
+  async findAccountCache(input){
+   await initialize();const account=accountValue(typeof input==='string'?{username:input}:input),accountKey=accountCacheKey(account),state=await load(),legacy=state.accountStates[accountKey];let cached=state.caches[accountKey];
    if(!cached&&legacy)cached={account,samples:state.records.filter(r=>legacy.recordIds.includes(r.id)).map(r=>({url:r.url,title:r.title,views:r.views,likes:r.likes,duration:r.duration,publishedAt:r.publishedAt,collectedAt:r.collectedAt,sourceAccount:account.url,status:'metadata-only'})),collectedAt:legacy.collectedAt,provider:'local-browser-import',status:'metadata-only'};
    if(!cached)return null;let hiddenCount=0,trashedCount=0;const samples=cached.samples.filter(s=>{const id=canonicalHistoryUrl(s.url).id,r=state.records.find(r=>r.id===id);if(r?.trashedAt){trashedCount++;return false;}if(r?.hidden){hiddenCount++;return false;}return Boolean(r);});
    const imported=state.importedReports.find(r=>r.id===legacy?.importedReportId);const report=imported&&imported.recordIds.every(id=>state.records.some(r=>r.id===id&&isActive(r)))?imported.report:null;

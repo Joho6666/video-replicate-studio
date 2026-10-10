@@ -1,6 +1,7 @@
 import {spawn} from 'node:child_process';
 import {openAsBlob} from 'node:fs';
 import {stat} from 'node:fs/promises';
+import {validateMediaUrl} from './research-media.mjs';
 
 export const MOSI_BASE_URL='https://api.mosi.cn/v1';
 export const MOSI_VISION_MODEL='moss-vl-1.0';
@@ -54,6 +55,6 @@ export function createMosiClient({transport=globalThis.fetch,keyProvider=readMos
   async configured(){try{return await keyStatusProvider()===true;}catch{return false;}},
   async uploadVideo({filePath}){const form=new FormData();form.append('purpose','video');form.append('file',await localBlob(filePath,'video/mp4',200*1024*1024),'reference.mp4');const data=await request('/files',{body:form});if(typeof data.id!=='string'||!/^[-a-zA-Z0-9_]{1,200}$/.test(data.id)||['failed','error'].includes(data.status))throw mosiError('MOSI_RESPONSE');return {fileId:data.id,status:typeof data.status==='string'?data.status:null};},
   async transcribe({filePath}){const form=new FormData();form.append('model',MOSI_AUDIO_MODEL);form.append('file',await localBlob(filePath,'audio/flac',512*1024*1024),'audio.flac');form.append('diarize','true');form.append('response_format','diarized_json');form.append('stream','false');form.append('async','false');return request('/audio/transcriptions',{body:form});},
-  async analyzeVideo({fileId,prompt,maxOutputTokens=2500}){if(typeof fileId!=='string'||!/^[-a-zA-Z0-9_]{1,200}$/.test(fileId)||typeof prompt!=='string'||!prompt.trim()||!Number.isInteger(maxOutputTokens)||maxOutputTokens<1||maxOutputTokens>8192)throw mosiError('MOSI_INPUT',400);return request('/responses',{json:{model:MOSI_VISION_MODEL,input:[{role:'user',content:[{type:'input_text',text:prompt},{type:'input_video',file_id:fileId}]}],max_output_tokens:maxOutputTokens}});}
+  async analyzeVideo({fileId,videoUrl,prompt,maxOutputTokens=2500}){if((fileId!==undefined)===(videoUrl!==undefined)||fileId!==undefined&&(typeof fileId!=='string'||!/^[-a-zA-Z0-9_]{1,200}$/.test(fileId))||typeof prompt!=='string'||!prompt.trim()||!Number.isInteger(maxOutputTokens)||maxOutputTokens<1||maxOutputTokens>8192)throw mosiError('MOSI_INPUT',400);let input;if(videoUrl!==undefined){try{input={type:'input_video',video_url:validateMediaUrl(videoUrl)};}catch{throw mosiError('MOSI_INPUT',400);}}else input={type:'input_video',file_id:fileId};return request('/responses',{json:{model:MOSI_VISION_MODEL,input:[{role:'user',content:[{type:'input_text',text:prompt},input]}],max_output_tokens:maxOutputTokens}});}
  };
 }
