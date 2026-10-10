@@ -1,4 +1,4 @@
-import {parseInstagram} from '../public/account-core.js';
+import {parseInstagram} from './account-core.mjs';
 
 export function normalizeAccountSamples(raw,account,collectedAt=new Date().toISOString()) {
   if(raw?.code!==undefined&&Number(raw.code)!==200)throw new Error('TikHub 返回业务错误，未把失败视作空账号。');
@@ -30,22 +30,4 @@ export async function fetchAccountSamples({url,consent},{key,base='https://api.t
   const res=await fetchImpl(endpoint,{headers:{Authorization:`Bearer ${key}`},signal:AbortSignal.timeout(30000),redirect:'error'});
   if(!res.ok)throw Object.assign(new Error(`TikHub HTTP ${res.status}；样本未更新。`),{status:502});
   const raw=await res.json();return normalizeAccountSamples(raw,account);
-}
-
-// Read the local archive unless the user explicitly requests a paid refresh.
-export async function getAccountSamples(body, {store, ...upstream} = {}) {
-  const account = parseInstagram(body?.url);
-  if (account?.kind !== 'account') throw Object.assign(new Error('需要 Instagram 品牌账号主页。'), {status: 400});
-  if (!store) throw new Error('历史资料库尚未连接。');
-  if (body.refresh !== true) {
-    const cached = await store.findAccountCache(account.username);
-    if (cached) return {...cached, fromCache: true, refreshed: false};
-    throw Object.assign(new Error('还没有本机记录。请点击“主动刷新视频样本”确认一次采集。'), {status: 428});
-  }
-  const result = await fetchAccountSamples(body, upstream);
-  await store.ingest(result, {kind: 'collection'});
-  let visible;
-  try { visible = await store.findAccountCache(account.username); } catch {}
-  if (!Array.isArray(visible?.samples)) throw Object.assign(new Error('新样本已归档，但可见记录暂时无法读取。请先读取已保存样本，避免重复刷新收费。'), {status: 503});
-  return {...visible, cached: false, fromCache: false, refreshed: true};
 }

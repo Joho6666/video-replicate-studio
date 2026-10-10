@@ -1,8 +1,15 @@
 import {mountAccountBenchmark} from './account-ui.js';
+import {parseInstagram} from './account-core.js';
+import {benchmarkRequest} from './benchmark-api.js';
 mountAccountBenchmark(document.querySelector('#benchmark'),{
   storageKey:'studio-account-benchmark:v1',
-  async loadSamples(url){
-    const response=await fetch('/api/benchmark/samples',{method:'POST',headers:{'content-type':'application/json','x-studio':'1'},body:JSON.stringify({url,consent:true})});
-    const body=await response.json();if(!response.ok)throw new Error(body.error||'账号读取失败');return body;
-  }
+  loadSamples:(url,{refresh=false}={})=>benchmarkRequest('/samples',{url,refresh,consent:refresh}),
+  importLegacy:state=>benchmarkRequest('/history/import-legacy',state),
+  async loadPreproduction(url){
+    const account=parseInstagram(url);
+    if(account?.kind!=='account')throw new Error('需要 Instagram 品牌主页。');
+    const report=await benchmarkRequest('/preproduction/report?'+new URLSearchParams({username:account.username}));
+    return {...report,evidenceBase:'/api/benchmark/preproduction/evidence'};
+  },
+  saveStyle:(runId,styleId)=>benchmarkRequest('/preproduction/style',{runId,styleId})
 });

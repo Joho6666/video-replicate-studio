@@ -1,5 +1,5 @@
-import {renderPreproduction} from './preproduction-ui.js';
-import {parseInstagram,accountBrief,validateAccountReport,accountTypeDraft} from './account-core.js';
+import {renderPreproduction} from './preproduction-ui.mjs';
+import {parseInstagram,accountBrief,validateAccountReport,accountTypeDraft} from './account-core.mjs';
 const abEscape=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function mountAccountBenchmark(root,{initialUrl='',storageKey='account-benchmark:v1',loadSamples,checkConnection,loadPreproduction,saveStyle,onDraft,importLegacy}={}) {
   let state={account:null,goal:'',assets:'',samples:[],report:null},notice='',busy=false,disposed=false,preproduction=null;
