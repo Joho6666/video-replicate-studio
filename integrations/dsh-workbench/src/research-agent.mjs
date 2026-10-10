@@ -19,15 +19,15 @@ const sourceSchema = object({
 const planProperties = {
   source: sourceSchema,
   userIntent: { type: 'string', minLength: 1, maxLength: 4000 },
-  executionMode: { type: 'string', enum: ['research', 'planning-only', 'candidate-selection'], description: 'research：确认后直接深拆最多两条；candidate-selection：先确认获取八条元数据候选，再由用户选最多两条并再次确认深拆；planning-only：明确仅规划，确认也不请求供应商。' },
+  executionMode: { type: 'string', enum: ['research', 'planning-only', 'candidate-selection', 'account-study'], description: 'account-study：单账号4～6条一次研究，可直接从工作台选择+链接开始，无需聊天；research：确认后直接深拆最多两条；candidate-selection：先确认获取八条元数据候选，再由用户选最多两条并再次确认深拆；planning-only：明确仅规划，确认也不请求供应商。' },
   candidateLimit: { type: 'integer', minimum: 8, maximum: 8, description: 'candidate-selection 固定为 8；selectionPolicy.count 仍是后续深拆的上限，最多 2。' },
   product: string(1000),
   audience: string(1000),
   topicId: identifier(),
   topicTitle: string(120),
   selectionPolicy: object({
-    mode: { type: 'string', enum: ['latest', 'top-in-window', 'user-picked'] },
-    count: { type: 'integer', minimum: 1, maximum: 2 },
+    mode: { type: 'string', enum: ['latest', 'top-in-window', 'user-picked', 'balanced', 'top-in-page'] },
+    count: { type: 'integer', minimum: 1, maximum: 6 },
     metric: { type: 'string', enum: ['views', 'likes'] },
     windowStart: string(40),
     windowEnd: string(40),
@@ -144,7 +144,7 @@ export function applyResearchSessionPolicy(ctx, { workbenchId = RESEARCH_WORKBEN
         tools,
         sections: [...(assembled.sections || []).filter(section => section.name !== 'REPLICATE_RESEARCH_SCOPE'), {
           name: 'REPLICATE_RESEARCH_SCOPE',
-          text: `${reason}\n只围绕本次链接、原意和明确选择的专题或风格理解，不展开代码、课程或工作区背景。先简短复述，再保存理解卡；已说明的链接、数量、重点或暂无素材不要重复询问。产品／受众可记未指定，只有必要条件缺失或矛盾才合并澄清。\n来源用 account 或 videos；Instagram、抖音及其他安全 HTTPS 来源都可保存规划卡，是否可执行以 sourceCapability 为准。抖音 secUid 保留大小写。v.douyin.com 分享短链用 source.kind='douyin-share'，只从分享文案提取 URL，准备卡时零网络，不猜账号、视频或 secUid；UI 确认后才免费解析 HTTPS 响应头，不新增付费解析服务。候选模式解析为单条视频时应停止并请用户改单片研究。\n要先看八条候选、暂不下载或深拆时设 executionMode='candidate-selection'、candidateLimit=8、selectionPolicy.count<=2；排序用 latest 或 top-in-window。首次 UI 确认只取一页元数据候选，状态 waiting_selection 时等用户选择最多两条并再次确认，Agent 不能代选或触发深拆。标题、热度和元数据不足以声称识别了画面、调性或节奏。明确仅规划／合成验收／完全不请求供应商才设 executionMode='planning-only'，此模式确认也零供应商调用。直接深拆最多两条设 executionMode='research'（默认），UI 确认后会调用供应商；“先理解后确认”“暂不生成视频”本身不等于仅规划。不能凭测试样式链接承诺不会抓取，以卡片模式、调用范围和状态为准。聊天里的“确认”不能替代工作台中绑定任务版本的确认。\n现有 TikHub 凭据可供接通的适配器复用。平台适配未接通或尚未真实验证，不等于用户无平台权限或密钥失效；分别说明供应商授权、业务适配、真实验证。sourceCapability.available=false 时可保存计划，research 或 candidate-selection 确认会被服务端拦截；planning-only 可完成。不能为未知平台静默调用或换服务。\n仅当用户已选择并提供真实 topicId 时调用 read_topic_context；没有就省略，不从账号或占位符编造 ID。不要生成视频或代选旧样本。模思负责后续画面与音频，不处理纯文本理解。`,
+          text: `${reason}\n新版主流程是用户在工作台选择范围、粘贴账号、点击开始研究，一次处理4～6条，不要求先聊天。用户已经在使用对话时，你仍只保存理解卡：单账号4～6条用account-study，选片balanced、top-in-page或latest；UI点击授权才执行，不提供自动start工具。旧案例不自动继承。只围绕本次链接、原意和明确选择的专题或风格理解，不展开代码、课程或工作区背景。先简短复述，再保存理解卡；已说明的链接、数量、重点或暂无素材不要重复询问。产品／受众可记未指定，只有必要条件缺失或矛盾才合并澄清。\n来源用 account 或 videos；Instagram、抖音及其他安全 HTTPS 来源都可保存规划卡，是否可执行以 sourceCapability 为准。抖音 secUid 保留大小写。v.douyin.com 分享短链用 source.kind='douyin-share'，只从分享文案提取 URL，准备卡时零网络，不猜账号、视频或 secUid；UI 确认后才免费解析 HTTPS 响应头，不新增付费解析服务。候选模式解析为单条视频时应停止并请用户改单片研究。\n要先看八条候选、暂不下载或深拆时设 executionMode='candidate-selection'、candidateLimit=8、selectionPolicy.count<=2；排序用 latest 或 top-in-window。首次 UI 确认只取一页元数据候选，状态 waiting_selection 时等用户选择最多两条并再次确认，Agent 不能代选或触发深拆。标题、热度和元数据不足以声称识别了画面、调性或节奏。明确仅规划／合成验收／完全不请求供应商才设 executionMode='planning-only'，此模式确认也零供应商调用。直接深拆最多两条设 executionMode='research'（默认），UI 确认后会调用供应商；“先理解后确认”“暂不生成视频”本身不等于仅规划。不能凭测试样式链接承诺不会抓取，以卡片模式、调用范围和状态为准。聊天里的“确认”不能替代工作台中绑定任务版本的确认。\n现有 TikHub 凭据可供接通的适配器复用。平台适配未接通或尚未真实验证，不等于用户无平台权限或密钥失效；分别说明供应商授权、业务适配、真实验证。sourceCapability.available=false 时可保存计划，research 或 candidate-selection 确认会被服务端拦截；planning-only 可完成。不能为未知平台静默调用或换服务。\n仅当用户已选择并提供真实 topicId 时调用 read_topic_context；没有就省略，不从账号或占位符编造 ID。不要生成视频或代选旧样本。模思负责后续画面与音频，不处理纯文本理解。`,
         }],
       };
     }));
@@ -167,7 +167,7 @@ export function applyResearchAgent(ctx, { service, workbenchId = RESEARCH_WORKBE
       name: RESEARCH_TOOL_NAMES.prepare,
       method: 'preparePlan',
       parameters: planSchema,
-      description: '把用户账号／视频链接和原意保存为中文理解卡，此工具零网络、零分析。安全 HTTPS 来源均可规划，适配状态看 sourceCapability，未接通不代表 TikHub 无权限。抖音 secUid 保留大小写；分享短链只提取 URL 并设 source.kind=douyin-share，不解析或编造 ID。先看八条元数据候选用 executionMode=candidate-selection、candidateLimit=8、selectionPolicy.count<=2，首次 UI 确认后取列表，再由用户选择并再次确认深拆；Agent 不能代选，元数据不证明风格。明确仅规划／合成验收且零供应商调用用 planning-only；直接研究用 research（默认），research 在 UI 确认后会调用供应商；暂不生成视频不等于仅规划。未知适配不静默调用。已明确条件不重复询问。更新带 planId+expectedRevision；无真实 topicId 则省略。聊天不能代替 UI 确认，不用旧视频替代新样本，不生成视频。',
+      description: '把用户账号／视频链接和原意保存为中文理解卡，此工具零网络、零分析。新版单账号4～6条用executionMode=account-study，selectionPolicy.mode=balanced/top-in-page/latest；常规用户直接使用账号研究的一键入口，无需先聊天。安全 HTTPS 来源均可规划，适配状态看 sourceCapability，未接通不代表 TikHub 无权限。抖音 secUid 保留大小写；分享短链只提取 URL 并设 source.kind=douyin-share，不解析或编造 ID。先看八条元数据候选用 executionMode=candidate-selection、candidateLimit=8、selectionPolicy.count<=2，首次 UI 确认后取列表，再由用户选择并再次确认深拆；Agent 不能代选，元数据不证明风格。明确仅规划／合成验收且零供应商调用用 planning-only；直接研究用 research（默认），research 在 UI 确认后会调用供应商；暂不生成视频不等于仅规划。未知适配不静默调用。已明确条件不重复询问。更新带 planId+expectedRevision；无真实 topicId 则省略。聊天不能代替 UI 确认，不用旧视频替代新样本，不生成视频。',
     },
     {
       name: RESEARCH_TOOL_NAMES.job,
@@ -203,6 +203,10 @@ export function applyResearchAgent(ctx, { service, workbenchId = RESEARCH_WORKBE
         timeoutMs: 15_000,
         async execute(args, execution) {
           assertArguments(args, definition.parameters);
+          if (definition.method === 'preparePlan') {
+            const n=args.selectionPolicy?.count;
+            if (args.executionMode==='account-study' ? ![4,5,6].includes(n) : n>2) fail('INVALID_INPUT','研究参数的选片数量不符合要求。');
+          }
           const owner = await researchToolOwner(ctx, execution, workbenchId);
           const result = await service[definition.method](args, owner);
           if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('本机研究服务返回了无效结果。');

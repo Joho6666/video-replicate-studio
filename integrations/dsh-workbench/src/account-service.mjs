@@ -1,3 +1,4 @@
+import {createEvidenceCapture,createEvidenceHandler} from './research-evidence.mjs';
 import path from 'node:path';
 import {createResearchService,applyResearchService} from './research-service.mjs';
 import {createMediaResolver} from './research-media.mjs';
@@ -86,9 +87,10 @@ export function applyAccountService(ctx,{root=defaultDataRoot()}={}){
   applyAnalysisService(ctx,{root,history:store});
   const research=createResearchService({root,history:store,resolveSource:resolveDouyinShare,
     collectAccount:async input=>fetchSupportedAccountSamples(input,{key:await readTikHubKey(),fetchImpl:privateTikHubFetch}),
-    analyzeVideo:createResearchAnalyzer({root,resolveMedia:createMediaResolver({getKey:readTikHubKey,fetchImpl:privateTikHubFetch}),isActive:async id=>(await store.snapshot({view:'active'})).records.some(r=>r.id===id)})
+    analyzeVideo:createResearchAnalyzer({root,captureEvidence:createEvidenceCapture({root}),resolveMedia:createMediaResolver({getKey:readTikHubKey,fetchImpl:privateTikHubFetch}),isActive:async id=>(await store.snapshot({view:'active'})).records.some(r=>r.id===id)})
   });
   applyResearchService(ctx,{service:research});
+  ctx.connection.fetch.register({path:'/api/derek-video-replicate/research/evidence',methods:['GET','HEAD'],requestBody:'buffered',fetch:createEvidenceHandler({root,research})});
   applyResearchAgent(ctx,{service:research});
   ctx.connection.fetch.register({path:'/api/derek-video-replicate/research/workspace',methods:['GET'],requestBody:'buffered',fetch:request=>sameOrigin(request)?Response.json({folder:path.dirname(root)},{headers:{'cache-control':'no-store'}}):Response.json({error:'请求来源校验失败。'},{status:403})});
   const handlers=createAccountHandlers({store});

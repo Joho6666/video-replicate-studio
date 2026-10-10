@@ -214,3 +214,11 @@ test('PTC-only or externally denied planning capability fails explicitly instead
 test('missing Host gate event API cannot silently enable a weaker research bridge', () => {
   assert.throws(() => applyResearchSessionPolicy({}), /边界接口不可用/);
 });
+
+test('account study can prepare four to six samples while Host tools cannot start it', async()=>{
+ const f=fixture(),tool=f.registered.get(RESEARCH_TOOL_NAMES.prepare);
+ await tool.execute({...plan,executionMode:'account-study',selectionPolicy:{mode:'balanced',count:6}},f.exec);
+ assert.equal(f.calls[0].args.selectionPolicy.count,6);
+ for(const count of [2,3,7])await assert.rejects(tool.execute({...plan,executionMode:'account-study',selectionPolicy:{mode:'balanced',count}},f.exec),/不符合要求/);
+ assert.equal([...f.registered.keys()].some(name=>name.includes('start')),false);
+});
