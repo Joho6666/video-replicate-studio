@@ -48,6 +48,11 @@ WebUI：`pnpm crawler:api`（:8080）+ `pnpm dev:webui`（:5173）。
 Blender 白膜锁空间与机位 → 图像编辑写实化首帧 → 图生视频 → 拼接。用于原创空间感镜头，**不用于换人复刻**。
 流程与脚本见 `workflows/whitemodel-scene/`，实测与成本见 `docs/WHITEMODEL_2026-10-07.md`。
 
+## 白模复刻（对标视频 → 白模 → 真人成片）
+
+白模作为复刻的中间骨架：只留镜头、站位、动作、节奏，再用 `wan2.7-videoedit` 渲染成真人和真实场景，按原片切点拼回。成片里没有原片像素，人物、服装、场景都能换。
+流程与脚本见 `workflows/blockout-replica/`，实测、对比、适用领域与成本见 [docs/BLOCKOUT_REPLICA_2026-10-11.md](docs/BLOCKOUT_REPLICA_2026-10-11.md)。
+
 ## 复刻 Studio（演示界面）
 
 ```bash
