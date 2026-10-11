@@ -4,7 +4,7 @@ import path from 'node:path';
 import {createResearchService,applyResearchService} from './research-service.mjs';
 import {createMediaResolver} from './research-media.mjs';
 import {resolveDouyinShare} from './douyin-share.mjs';
-import {createResearchAnalyzer} from './research-analyzer.mjs';
+import {createResearchAnalyzer,createResearchPreview} from './research-analyzer.mjs';
 import {applyResearchAgent} from './research-agent.mjs';
 import {sameOrigin} from './request-origin.mjs';
 import {applyAnalysisService} from './analysis-service.mjs';
@@ -86,10 +86,12 @@ export function applyAccountService(ctx,{root=defaultDataRoot()}={}){
   applyPreproductionStore(ctx,{root,history:store});
   applyModelSettings(ctx,{root});
   applyAnalysisService(ctx,{root,history:store});
+  const resolver=createMediaResolver({root,getKey:readTikHubKey,fetchImpl:privateTikHubFetch}),isActive=async id=>(await store.snapshot({view:'active'})).records.some(r=>r.id===id);
   const research=createResearchService({root,history:store,resolveSource:resolveDouyinShare,
+    preparePreview:createResearchPreview({root,resolveMedia:resolver,isActive}),
     collectAccount:async input=>fetchSupportedAccountSamples(input,{key:await readTikHubKey(),fetchImpl:privateTikHubFetch}),
     compareVideos:createResearchComparison({root,ctx,isActive:async(jobId,recordIds)=>{try{const job=await research.getJob({jobId});const records=(await store.snapshot({view:'active'})).records;return !job.cancelRequested&&recordIds.every(id=>records.some(r=>r.id===id));}catch{return false;}}}),
-    analyzeVideo:createResearchAnalyzer({root,captureEvidence:createEvidenceCapture({root}),resolveMedia:createMediaResolver({root,getKey:readTikHubKey,fetchImpl:privateTikHubFetch}),isActive:async id=>(await store.snapshot({view:'active'})).records.some(r=>r.id===id)})
+    analyzeVideo:createResearchAnalyzer({root,captureEvidence:createEvidenceCapture({root}),resolveMedia:resolver,isActive})
   });
   applyResearchService(ctx,{service:research});
   ctx.connection.fetch.register({path:'/api/derek-video-replicate/research/evidence',methods:['GET','HEAD'],requestBody:'buffered',fetch:createEvidenceHandler({root,research})});

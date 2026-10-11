@@ -41,10 +41,10 @@ test('start only permits same-origin UI and the account-study execution mode',as
  assert.equal(collections(),0);assert.equal(analyses(),0);assert.equal((await service.listPlans()).plans.length,0);
 });
 
-test('four through six are the only account-study counts; old plans stay at two and 2500 output tokens',async()=>{
+test('three through six are supported account-study counts; old plans stay at two and 2500 output tokens',async()=>{
  const {service,collections}=await setup();
- for(const count of [4,5,6]){const {plan}=await service.preparePlan({...input(),executionMode:'account-study',selectionPolicy:{mode:'latest',count}});assert.equal(plan.budgetScope.maxVideos,count);assert.equal(plan.budgetScope.maxAccountPages,2);assert.equal(plan.budgetScope.maxMetadataCandidates,24);assert.equal(plan.budgetScope.maxVlCalls,count);assert.equal(plan.budgetScope.maxAsrCalls,count);assert.equal(plan.budgetScope.maxResolveCalls,count);assert.equal(plan.budgetScope.vlMaxOutputTokens,5000);assert.equal(plan.pricingEstimate.asr.maxDurationSec,count*600);assert.equal(plan.pricingEstimate.tikhub.maxCalls,count+2);}
- for(const count of [0,1,2,3,7,12,4.5,'4'])await assert.rejects(service.preparePlan({...input(),executionMode:'account-study',selectionPolicy:{mode:'balanced',count}}),{code:'RESEARCH_SELECTION'});
+ for(const count of [3,4,5,6]){const {plan}=await service.preparePlan({...input(),executionMode:'account-study',selectionPolicy:{mode:'latest',count}});assert.equal(plan.budgetScope.maxVideos,count);assert.equal(plan.budgetScope.maxAccountPages,2);assert.equal(plan.budgetScope.maxMetadataCandidates,24);assert.equal(plan.budgetScope.maxVlCalls,count);assert.equal(plan.budgetScope.maxAsrCalls,count);assert.equal(plan.budgetScope.maxResolveCalls,count);assert.equal(plan.budgetScope.vlMaxOutputTokens,5000);assert.equal(plan.pricingEstimate.asr.maxDurationSec,count*600);assert.equal(plan.pricingEstimate.tikhub.maxCalls,count+2);}
+ for(const count of [0,1,2,7,12,4.5,'4'])await assert.rejects(service.preparePlan({...input(),executionMode:'account-study',selectionPolicy:{mode:'balanced',count}}),{code:'RESEARCH_SELECTION'});
  const old=await service.preparePlan({...input(),userIntent:'旧模式保持两条',executionMode:'research',selectionPolicy:undefined});assert.equal(old.plan.budgetScope.maxVideos,2);assert.equal(old.plan.budgetScope.vlMaxOutputTokens,2500);
  await assert.rejects(service.preparePlan({...input(),userIntent:'不允许旧模式扩大',selectionPolicy:{mode:'latest',count:4}}),{code:'RESEARCH_SELECTION'});assert.equal(collections(),0);
 });
@@ -111,4 +111,24 @@ test('client-supplied budgets and prior plan fields cannot expand account-study 
  const prepared=await service.preparePlan(payload);assert.equal(prepared.plan.budgetScope.maxVideos,6);assert.equal(prepared.plan.budgetScope.maxAccountPages,2);assert.equal(prepared.plan.budgetScope.vlMaxOutputTokens,5000);assert.deepEqual(prepared.plan.budgetScope.providers,['tikhub','mosi','deepseek']);assert.equal(prepared.plan.styleVersionSnapshot,null);
  await assert.rejects(service.startResearch({...payload,source:{kind:'account',url:'https://example.com/unsupported'}}),{code:'RESEARCH_CAPABILITY'});assert.equal(collections(),0);assert.equal(analyses(),0);
  const changed=await service.preparePlan({...payload,planId:prepared.planId,expectedRevision:1,selectionPolicy:{mode:'latest',count:4}});assert.equal(changed.planRevision,2);assert.notEqual(changed.plan.planHash,prepared.plan.planHash);assert.equal(prepared.plan.budgetScope.maxVideos,6);assert.equal(changed.plan.budgetScope.maxVideos,4);
+});
+
+
+test('all selected previews are saved before the first visual request; a failed gate leaves six playable references without retries',async()=>{
+ const events=[];const {service}=await setup({preparePreview:async({record,onStage})=>{events.push('preview');await onStage('resolving_media',{step:'resolve',status:'requesting'});return {status:'preview-ready',steps:{resolve:{cached:false}},evidence:{videoUrl:'/api/derek-video-replicate/research/evidence?jobId=synthetic&recordId='+record.id+'&asset=video'}};},analyzeVideo:async()=>{events.push('analyze');throw Object.assign(Error('synthetic gate failure'),{code:'MOSI_TIMEOUT'});}});
+ const {jobId}=await service.startResearch(input({selectionPolicy:{mode:'latest',count:6}}));const job=await service.waitForIdle(jobId),saved=await service.readResult({jobId});
+ assert.deepEqual(events,['preview','preview','preview','preview','preview','preview','analyze']);assert.equal(job.analysisGate.status,'blocked');assert.equal(saved.previews.length,6);assert.equal(job.actualUsage.providerCalls.mediaResolution,6);assert.equal(job.videos.filter(v=>v.status==='blocked').length,5);
+ const preview=await service.readByRecord({recordId:job.selectedRecordIds[5]});assert.equal(preview.status,'partial');assert.match(preview.result.evidence.videoUrl,/asset=video/);
+ await service.startResearch(input({selectionPolicy:{mode:'latest',count:6}}));await service.waitForIdle();assert.equal(events.length,7);
+});
+test('preview failures are preserved and do not dispatch a second media resolver or visual request',async()=>{
+ let previews=0,visuals=0;const {service}=await setup({preparePreview:async()=>{previews++;throw Object.assign(Error('synthetic cache failure'),{code:'MEDIA_DOWNLOAD'});},analyzeVideo:async()=>{visuals++;}});
+ const {jobId}=await service.startResearch(input({selectionPolicy:{mode:'latest',count:3}})),job=await service.waitForIdle(jobId);assert.equal(previews,3);assert.equal(visuals,0);assert.equal(job.previewFailures.length,3);assert.equal(job.analysisGate.status,'blocked');
+});
+
+
+test('explicit single video links use the existing bounded pipeline without collecting an account or expanding scope',async()=>{
+ const {service,collections,analyses}=await setup(),body=input({executionMode:'research',source:{kind:'videos',urls:['https://www.instagram.com/reel/SINGLE_SYNTHETIC/']},selectionPolicy:{mode:'user-picked',count:1},userIntent:'只拆解这一条'});
+ const {jobId}=await service.startResearch(body),job=await service.waitForIdle(jobId);assert.equal(job.plan.budgetScope.maxVideos,1);assert.equal(collections(),0);assert.equal(analyses(),1);assert.equal((await service.startResearch(body)).jobId,jobId);assert.equal(analyses(),1);
+ await assert.rejects(service.startResearch({...body,requestId:'request_two',source:{kind:'videos',urls:[...body.source.urls,'https://www.instagram.com/reel/SECOND_SYNTHETIC/']}}),{code:'RESEARCH_EXECUTION_MODE'});
 });

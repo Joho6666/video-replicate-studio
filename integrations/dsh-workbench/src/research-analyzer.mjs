@@ -54,3 +54,13 @@ export function createResearchAnalyzer({root,client=createMosiClient(),resolveMe
  }catch(error){state.status='partial';state.error=safeResearchAnalysisError(error);state.completedAt=now();state.result=unfinishedResult(state,record);await persist().catch(()=>{});if(error?.code==='RESEARCH_INACTIVE')throw error;return {...state.result,cached:false};}
  finally{await cachedMedia?.release?.().catch(()=>{});await rm(path.join(dir,'in-use.lock'),{force:true}).catch(()=>{});}
  };}
+
+/** Playback preparation uses only the already approved source and bounded media cache. */
+export function createResearchPreview({root,resolveMedia,cacheMedia,measureMedia=measureResearchMedia,isActive=async()=>true}={}){
+ const cache=cacheMedia||createMediaCache({root});return async({record,plan,jobId,onStage=async()=>{}})=>{
+  if(!await isActive(record.id))throw problem('RESEARCH_INACTIVE',409);let cached;
+  try{await onStage('resolving_media',{step:'resolve',status:'requesting'});const media=await resolveMedia({record});cached=await cache({media,jobId,recordId:record.id,maxBytes:plan.budgetScope.maxBytesPerVideo});const measured=await measureMedia({filePath:cached.filePath,directory:cached.directory,maxDurationSec:plan.budgetScope.maxDurationSecPerVideo});if(!await isActive(record.id))throw problem('RESEARCH_INACTIVE',409);
+   return{status:'preview-ready',titleZh:record.displayTitleZh||record.title||'参考视频',tagsZh:[],visual:null,measurements:measured.measurements,evidence:{status:'preview-ready',frames:[],videoUrl:'/api/derek-video-replicate/research/evidence?'+new URLSearchParams({jobId,recordId:record.id,asset:'video'})},evidenceRef:{jobId,recordId:record.id,sourceUrl:record.url,publishedAt:record.publishedAt},steps:{resolve:{status:'completed',cached:media.cached===true},preview:{status:'completed'},vl:{status:'not-started'}},recreationPackage:emptyRecreationPackage('视频已准备，画面分析与提示词正在整理。')};
+  }finally{await cached?.release?.().catch(()=>{});}
+ };
+}
