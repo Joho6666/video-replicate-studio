@@ -84,7 +84,7 @@ test('six compact cards keep valid recommendations first and show one direct pla
   assert.equal(card.querySelector('.rr-preview-reason,.rr-preview-advice,.rr-preview-materials'),null);
   assert.equal(dialog.querySelectorAll('video').length,0);assert(!dialog.hasAttribute('open'));
   assert.equal(/推荐/.test(card.querySelector('.rr-preview-top').textContent),i<3);
-  assert.equal(card.querySelector('[data-rr="open-breakdown"]').textContent,'复刻提示词');
+  assert.equal(card.querySelector('[data-rr="open-breakdown"]').textContent,'复刻这条');
  }
  await app.click('[data-rr="open-breakdown"]');assert(cards[0].querySelector('dialog').hasAttribute('open'));
  assert(cards[0].querySelector('dialog').textContent.includes('Reference @Video1 pacing; use @Image2.'));
@@ -202,7 +202,7 @@ test('audio failure preserves valid visual status while missing or unvalidated o
   const entry=sample();entry.result.status='partial';entry.result.steps={vl:{status:vl},asr:{status:'failed'}};entry.result.visual.observations=observations;
   const {document}=parseHTML(renderResearchResult({results:[entry]},{previewFirst:true}));
   assert.match(document.querySelector('.rr-preview-top').textContent,ready?/提示词已就绪/:/未完成/);
-  assert.equal(document.querySelector('[data-rr="open-breakdown"]').textContent,ready?'复刻提示词':'查看已有记录');
+  assert.equal(document.querySelector('[data-rr="open-breakdown"]').textContent,ready?'复刻这条':'查看已有记录');
  }
  const entry=sample();entry.result.steps={vl:{status:'failed'}};entry.result.evidence={frames:[]};
  const {document}=parseHTML(renderResearchResult({results:[entry]},{previewFirst:true}));
@@ -216,7 +216,7 @@ test('double-click on continue while request is pending sends one resume command
 
 test('prompt dialog opens the original plan, switches detail tabs and closes without changing playback or making requests',async t=>{
  const app=harness(t,{initialJobId:'research_one'});await settle();const before=app.calls.length,card=app.root.querySelector('[data-record]'),video=card.querySelector('video');video.currentTime=5.4;
- assert.equal(card.querySelector('[data-rr="open-breakdown"]').textContent,'复刻提示词');await app.click('[data-rr="open-breakdown"]');
+ assert.equal(card.querySelector('[data-rr="open-breakdown"]').textContent,'复刻这条');await app.click('[data-rr="open-breakdown"]');
  const dialog=card.querySelector('dialog[data-video-panel]'),plan=dialog.querySelector('[data-detail-view="plan"]'),analysis=dialog.querySelector('[data-detail-view="analysis"]');
  assert(dialog.hasAttribute('open'));assert(dialog.querySelector('.rr-video-body'));assert.equal(plan.hidden,false);assert.equal(analysis.hidden,true);
  assert(dialog.querySelector('details[data-preserve$="-prompts"]').open);assert(dialog.querySelector('details[data-preserve$="-shots"]').open);
