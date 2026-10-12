@@ -1,0 +1,20 @@
+/** Explicit offline review of one saved compilation; no credentials or model clients. */
+import path from 'node:path';
+import {readFile,stat,realpath,writeFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {createResearchStore,validResearchId} from '../src/research-store.mjs';
+import {createHistoryStore} from '../src/history-store.mjs';
+import {compileReferenceReviewPackage} from '../src/research-comparison.mjs';
+const root=path.resolve(process.argv[2]||''),jobId=process.argv[3],revision=Number(process.argv[4]);
+if(!process.argv[2]||!validResearchId(jobId)||!Number.isSafeInteger(revision))throw Error('Usage: review-saved-compilation DATA_ROOT JOB_ID PLAN_REVISION');
+const store=createResearchStore({root}),history=createHistoryStore({root});
+const state=await store.read(),job=state.jobs.find(j=>j.jobId===jobId);
+if(!job||job.planRevision!==revision||job.cancelRequested||!['partial','completed'].includes(job.phase)||job.compilationContinuation?.status!=='incomplete')throw Error('No unmodified saved incomplete compilation to review');
+const filename=path.join(root,'research-comparisons',createHash('sha256').update(JSON.stringify(jobId)).digest('hex')+'-attempt-1-compile-evidence','compilation.response.json');
+if(await realpath(filename)!==filename||(await stat(filename)).size>2*1024*1024)throw Error('Unsafe compilation path');
+const response=JSON.parse(await readFile(filename,'utf8'));if(response.status!=='completed'||response.finishReason!=='stop')throw Error('A complete saved response is required; no truncated recovery');
+const raw=response.json||JSON.parse(response.text),visible=new Set((await history.snapshot({})).records.map(r=>r.id));
+const updates=raw.packages.map(p=>{const item=job.results.find(r=>r.recordId===p.recordId);if(!item||!visible.has(p.recordId))throw Error('Source missing or not visible');return{recordId:p.recordId,pack:compileReferenceReviewPackage(p.recreationPackage,{recordId:p.recordId,result:item.result,metadata:job.selectedMetadata.find(r=>r.recordId===p.recordId)},job.plan)};});
+await writeFile(path.join(root,'research',jobId+'-before-local-review.json'),JSON.stringify(job,null,2),{flag:'wx',mode:0o600});
+await store.transaction(s=>{const current=s.jobs.find(j=>j.jobId===jobId);if(current.updatedAt!==job.updatedAt||current.planRevision!==revision)throw Error('Job changed, old review rejected');for(const u of updates){if(u.pack.status==='incomplete')continue;const r=current.results.find(r=>r.recordId===u.recordId);r.result.recreationPackage=u.pack;r.result.recreationPackageSource=u.pack.localReview?'local-reference-review':'deepseek-existing-evidence';const c=current.styleCandidates.find(c=>c.recordIds.length===1&&c.recordIds[0]===u.recordId);if(c)c.recreationPackage=u.pack;}current.localCompilationReview={at:new Date().toISOString(),version:1,modelRequests:0,results:updates.map(u=>({recordId:u.recordId,status:u.pack.status,uncheckedIntervals:u.pack.localReview?.rejectedIntervals||[]}))};current.updatedAt=new Date().toISOString();return{};});
+console.log(JSON.stringify(updates.map(u=>({recordId:u.recordId,status:u.pack.status,segments:u.pack.segments.length,uncheckedIntervals:u.pack.localReview?.rejectedIntervals.length||0})),null,2));
